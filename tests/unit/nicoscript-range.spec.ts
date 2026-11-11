@@ -127,6 +127,27 @@ describe("NicoScript range boundaries", () => {
     expect(parseViewerContent(ctx, END_VPOS, "needle end")).toBe("needle end");
   });
 
+  test.each([
+    ['@置換 "needle" "hit"', "hit viewer"],
+    ['@置換 "needle" "hit"   ', "hit viewer"],
+    ['@置換 "needle" "hit" 単', "hit viewer"],
+    ['@置換 "needle" "hit" 単 コメ', "hit viewer"],
+    ['@置換 "needle" ""', " viewer"],
+    ['@置換 "needle"', " viewer"],
+  ])("accepts omitted replacement arguments: %s", (script, expected) => {
+    const ctx = createContext();
+    parseScript(ctx, script);
+    expect(parseViewerContent(ctx, START_VPOS, "needle viewer")).toBe(expected);
+  });
+
+  test("does not treat an explicitly empty range as an omitted argument", () => {
+    const ctx = createContext();
+    parseScript(ctx, '@置換 "needle" "hit" ""');
+    expect(parseViewerContent(ctx, START_VPOS, "needle viewer")).toBe(
+      "needle viewer",
+    );
+  });
+
   test("@逆 is active on [start, end)", () => {
     const ctx = createContext();
     parseScript(ctx, "@逆 全");
