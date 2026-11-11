@@ -20,15 +20,9 @@ const CSS = `
   to   { transform: translateX(-50%) scale(1); }
 }
 [data-dm-css-container] {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
-  right: 0;
-  bottom: 0;
-  margin: auto;
-  width: min(100vw, calc(100vh * 16 / 9));
-  height: min(100vh, calc(100vw * 9 / 16));
-  --dm-unit: calc(min(100vh, 56.25vw) / 1080);
   pointer-events: none;
   overflow: hidden;
   z-index: 1;
@@ -64,6 +58,26 @@ class CSSRenderer {
   private playbackSpeed = 1;
   private measureCanvas: HTMLCanvasElement | null = null;
   private ascentCache: Map<string, number> = new Map();
+  private readonly canvas: HTMLCanvasElement;
+  private readonly host: HTMLElement;
+  private viewportWidth: number;
+  private viewportOffsetX = 0;
+  private resizeObserver?: ResizeObserver;
+  private readonly syncBounds = () => {
+    const canvasRect = this.canvas.getBoundingClientRect();
+    const hostRect = this.host.getBoundingClientRect();
+    const aspect = this.viewportWidth / this.config.canvasHeight;
+    const height = Math.min(canvasRect.height, canvasRect.width / aspect);
+    const width = height * aspect;
+    this.container.style.left = `${canvasRect.left - hostRect.left + this.host.scrollLeft - this.host.clientLeft + (canvasRect.width - width) / 2}px`;
+    this.container.style.top = `${canvasRect.top - hostRect.top + this.host.scrollTop - this.host.clientTop + (canvasRect.height - height) / 2}px`;
+    this.container.style.width = `${width}px`;
+    this.container.style.height = `${height}px`;
+    this.container.style.setProperty(
+      "--dm-unit",
+      `${height / this.config.canvasHeight}px`,
+    );
+  };
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -72,10 +86,13 @@ class CSSRenderer {
   ) {
     this.config = config;
     this.options = options;
+    this.canvas = canvas;
+    this.viewportWidth = config.canvasWidth;
     this.container = document.createElement("div");
     this.container.setAttribute("data-dm-css-container", "");
 
     const parent = canvas.parentElement;
+    this.host = parent ?? document.body;
     if (parent) {
       if (getComputedStyle(parent).position === "static") {
         parent.style.position = "relative";
@@ -88,6 +105,22 @@ class CSSRenderer {
     this.styleElement = document.createElement("style");
     this.styleElement.textContent = CSS;
     document.head.appendChild(this.styleElement);
+    if (typeof ResizeObserver !== "undefined") {
+      this.resizeObserver = new ResizeObserver(this.syncBounds);
+      this.resizeObserver.observe(canvas);
+      this.resizeObserver.observe(this.host);
+    }
+    window.addEventListener("resize", this.syncBounds);
+    this.syncBounds();
+  }
+
+  setViewport(width: number, offsetX: number) {
+    if (width !== this.viewportWidth || offsetX !== this.viewportOffsetX) {
+      this.clear();
+      this.viewportWidth = width;
+      this.viewportOffsetX = offsetX;
+    }
+    this.syncBounds();
   }
 
   pause() {
@@ -399,8 +432,8 @@ class CSSRenderer {
       this.config.commentDrawRange -
       (vposLapsed + 100) * speed;
 
-    const currentXPx = normalXPx;
-    const toXPx = -(c.width + fontSizePx);
+    const currentXPx = normalXPx + this.viewportOffsetX;
+    const toXPx = Math.min(0, this.viewportOffsetX) - (c.width + fontSizePx);
     const remainingPx = currentXPx - toXPx;
     // アニメーションは実時間駆動のため、再生速度の倍率で除算して
     // スクロール時間を「ビデオ時間」基準に揃える (1x では何も変わらない)
@@ -413,8 +446,8 @@ class CSSRenderer {
     let fromXPx: number;
     let endXPx: number;
     if (isReverse) {
-      fromXPx = this.config.canvasWidth - c.width - currentXPx;
-      endXPx = this.config.canvasWidth + fontSizePx;
+      fromXPx = this.viewportWidth - c.width - currentXPx;
+      endXPx = this.viewportWidth - c.width - toXPx;
     } else {
       fromXPx = currentXPx;
       endXPx = toXPx;
@@ -611,6 +644,8 @@ class CSSRenderer {
   }
 
   destroy() {
+    this.resizeObserver?.disconnect();
+    window.removeEventListener("resize", this.syncBounds);
     this.clear();
     this.container.remove();
     this.styleElement.remove();

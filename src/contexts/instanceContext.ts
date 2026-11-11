@@ -5,6 +5,8 @@ import type { ImageCacheContext } from "./cache";
 
 type CommentInstanceContext = {
   config: BaseConfig;
+  /** Logical visible area, centered on the unchanged comment layout stage. */
+  viewport?: { width: number; offsetX: number };
   options: BaseOptions;
   nicoScripts: NicoScript;
   imageCache: ImageCacheContext;
