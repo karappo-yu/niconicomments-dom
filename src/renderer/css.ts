@@ -442,6 +442,30 @@ class CSSRenderer {
     const c = comment.comment;
     const suffix = c.comboSuffix;
     const content = comment.content;
+    if (!comment.flash && c.content.some((item) => item.type === "spacer")) {
+      element.replaceChildren();
+      for (const item of c.content) {
+        if (item.type === "spacer") {
+          const span = document.createElement("span");
+          span.dataset.dmSpacer = "";
+          span.textContent = item.char.repeat(item.count);
+          span.style.display = "inline-block";
+          span.style.width = `${item.count * item.charWidth}em`;
+          element.appendChild(span);
+        } else {
+          element.appendChild(document.createTextNode(item.content));
+        }
+      }
+      if (suffix && element.lastChild?.nodeType === Node.TEXT_NODE) {
+        const last = element.lastChild;
+        last.textContent = (last.textContent ?? "").slice(0, -suffix.length);
+        const span = document.createElement("span");
+        span.textContent = suffix;
+        span.style.color = c.comboSuffixColor ?? "inherit";
+        element.appendChild(span);
+      }
+      return;
+    }
     if (!suffix) {
       if (element.textContent !== content) element.textContent = content;
       return;

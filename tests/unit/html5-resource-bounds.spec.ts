@@ -291,6 +291,49 @@ describe("HTML5 comment resource bounds", () => {
     vi.stubGlobal("clearTimeout", vi.fn());
   });
 
+  test("paints compatibility spaces horizontally and advances rows only at newlines", () => {
+    const ctx = createContext();
+    ctx.config.compatSpacer.html5 = {
+      "\u2000": { gothic: 0.5 },
+      "\u2001": { gothic: 1 },
+      "\u2005": { gothic: 0.25 },
+    };
+    const renderer = new RecordingRenderer();
+    const comment = new TestHTML5Comment(
+      formattedComment(1, "\u2001A\u2005B\n\u2000C\nD\u2001", [
+        "gothic",
+        "ender",
+      ]),
+      renderer,
+      0,
+      ctx,
+    );
+    comment._generateTextImage();
+    const image = renderer.children[0];
+    if (!image) throw new Error("Missing comment image");
+    const calls = image.fillTextCallsByPosition.filter((call) => call.text);
+    const fontSize = Number(/([0-9.]+)px/.exec(image.getFont())?.[1]);
+    expect(calls.map((call) => [call.text, call.x])).toEqual([
+      ["A", fontSize],
+      ["B", fontSize * 1.75],
+      ["C", fontSize * 0.5],
+      ["D", 0],
+    ]);
+    const [a, b, c, d] = calls;
+    if (!a || !b || !c || !d) throw new Error("Missing text runs");
+    expect(a.y).toBe(b.y);
+    expect(c.y - b.y).toBeCloseTo(comment.comment.lineHeight);
+    expect(d.y - c.y).toBeCloseTo(comment.comment.lineHeight);
+    comment.content = "X\u2001Y";
+    expect(comment.comment.content).toContainEqual({
+      type: "spacer",
+      char: "\u2001",
+      charWidth: 1,
+      count: 1,
+    });
+    expect(comment.content).toBe("X\u2001Y");
+  });
+
   test("caps newline-heavy comments before measurement and image generation", () => {
     const renderer = new RecordingRenderer();
     const comment = new TestHTML5Comment(

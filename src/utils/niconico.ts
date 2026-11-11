@@ -10,6 +10,7 @@ import { TypeGuardError } from "@/errors/TypeGuardError";
 
 import { parseFont } from "./comment";
 import { getConfig } from "./config";
+import { getHTML5SpacerWidths } from "./html5Spacers";
 
 /**
  * 各サイズの行高を返す
@@ -86,36 +87,34 @@ const addHTML5PartToResult = (
 ) => {
   if (part === "") return;
   const font = _font ?? "defont";
-  for (const key of Object.keys(config.compatSpacer.html5)) {
-    const spacerWidth = config.compatSpacer.html5[key]?.[font];
-    if (!spacerWidth) continue;
-    const compatIndex = part.indexOf(key);
-    if (compatIndex >= 0) {
-      addHTML5PartToResult(
-        lineContent,
-        part.slice(0, compatIndex),
-        config,
-        font,
-      );
-      let i = compatIndex;
-      for (; i < part.length && part[i] === key; i++) {
-        /* empty */
-      }
-      lineContent.push({
-        type: "spacer",
-        char: key,
-        charWidth: spacerWidth,
-        count: i - compatIndex,
-      });
-      addHTML5PartToResult(lineContent, part.slice(i), config, font);
-      return;
-    }
+  const widths = getHTML5SpacerWidths(config, font);
+  const appendText = (text: string) => {
+    if (!text) return;
+    lineContent.push({
+      type: "text",
+      content: text,
+      slicedContent: text.split("\n"),
+    });
+  };
+  if (Object.keys(widths).length === 0) {
+    appendText(part);
+    return;
   }
-  lineContent.push({
-    type: "text",
-    content: part,
-    slicedContent: part.split("\n"),
-  });
+  // Iterate rather than recurse: CA can contain thousands of alternating
+  // spacer/text runs, even within the comment length limit.
+  let start = 0;
+  for (let i = 0; i < part.length; i++) {
+    const char = part.charAt(i);
+    const charWidth = widths[char];
+    if (!charWidth) continue;
+    appendText(part.slice(start, i));
+    let end = i + 1;
+    while (part[end] === char) end++;
+    lineContent.push({ type: "spacer", char, charWidth, count: end - i });
+    start = end;
+    i = end - 1;
+  }
+  appendText(part.slice(start));
 };
 
 /**

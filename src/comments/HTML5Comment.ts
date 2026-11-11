@@ -1,5 +1,5 @@
 import type {
-  CommentContentItemText,
+  CommentContentItem,
   FormattedComment,
   FormattedCommentWithFont,
   FormattedCommentWithSize,
@@ -96,7 +96,10 @@ class HTML5Comment extends BaseComment {
     return this.comment.rawContent;
   }
   override set content(input: string) {
-    const { content, lineCount, lineOffset } = this.parseContent(input);
+    const { content, lineCount, lineOffset } = this.parseContent(
+      input,
+      this.comment.font as HTML5Fonts,
+    );
     const comment: FormattedCommentWithFont = {
       ...this.comment,
       rawContent: input,
@@ -199,7 +202,7 @@ class HTML5Comment extends BaseComment {
   }
 
   override parseContent(input: string, font?: HTML5Fonts) {
-    const content: CommentContentItemText[] = [];
+    const content: CommentContentItem[] = [];
     const clamped = clampHTML5Content(input);
     addHTML5PartToResult(
       content,
@@ -550,6 +553,7 @@ class HTML5Comment extends BaseComment {
       image.setFont(parseFont(this.comment.font, fontSize, this.config));
       image.setScale(drawScale);
       let lineCount = 0;
+      let posX = 0;
       if (!typeGuard.internal.HTML5Fonts(this.comment.font))
         throw new TypeGuardError();
       const offsetY =
@@ -568,7 +572,7 @@ class HTML5Comment extends BaseComment {
         const item = items[i];
         if (!item) continue;
         if (item.type === "spacer") {
-          lineCount += item.count * item.charWidth * this.comment.fontSize;
+          posX += item.count * item.charWidth * fontSize;
           continue;
         }
         const lines = item.slicedContent;
@@ -587,19 +591,24 @@ class HTML5Comment extends BaseComment {
           ) {
             const base = line.slice(0, -combo.suffix.length);
             if (base.length > 0) {
-              image.strokeText(base, 0, posY);
-              image.fillText(base, 0, posY);
+              image.strokeText(base, posX, posY);
+              image.fillText(base, posX, posY);
             }
             // 助手画布的 measureText 不受缩放变换影响,与预缩放坐标一致
             const baseWidth = image.measureText(base).width;
             image.setFillStyle(combo.color);
-            image.strokeText(combo.suffix, baseWidth, posY);
-            image.fillText(combo.suffix, baseWidth, posY);
+            image.strokeText(combo.suffix, posX + baseWidth, posY);
+            image.fillText(combo.suffix, posX + baseWidth, posY);
           } else {
-            image.strokeText(line, 0, posY);
-            image.fillText(line, 0, posY);
+            image.strokeText(line, posX, posY);
+            image.fillText(line, posX, posY);
           }
-          lineCount += 1;
+          if (j < n - 1) {
+            lineCount += 1;
+            posX = 0;
+          } else {
+            posX += item.width[j] ?? 0;
+          }
         }
       }
     } catch (e) {
