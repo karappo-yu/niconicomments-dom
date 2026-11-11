@@ -1,4 +1,4 @@
-import type { InferOutput } from "valibot";
+import type { InferInput, InferOutput } from "valibot";
 import { array, boolean, object, omit, optional, string } from "valibot";
 
 import {
@@ -24,6 +24,8 @@ export const ZFormattedComment = object({
   is_my_post: optional(boolean(), false),
 });
 export type FormattedComment = InferOutput<typeof ZFormattedComment>;
+/** Public input accepts omitted fields whose defaults are supplied by parsing. */
+export type FormattedCommentInput = InferInput<typeof ZFormattedComment>;
 
 /**
  * @deprecated
@@ -37,6 +39,10 @@ export const ZFormattedLegacyComment = omit(ZFormattedComment, [
  * @deprecated
  */
 export type FormattedLegacyComment = InferOutput<
+  typeof ZFormattedLegacyComment
+>;
+/** @deprecated */
+export type FormattedLegacyCommentInput = InferInput<
   typeof ZFormattedLegacyComment
 >;
 
