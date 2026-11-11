@@ -1188,7 +1188,7 @@ const isFlashComment = (
   options: BaseOptions,
 ): boolean =>
   options.mode === "flash" ||
-  (options.mode === "default" &&
+  ((options.mode === "default" || options.mode === "css") &&
     !(
       hasParsedMailCommand(comment.mail, "gothic") ||
       hasParsedMailCommand(comment.mail, "defont") ||

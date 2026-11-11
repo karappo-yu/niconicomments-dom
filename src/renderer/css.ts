@@ -57,7 +57,10 @@ class CSSRenderer {
   private lastUpdateVpos = -1;
   private playbackSpeed = 1;
   private measureCanvas: HTMLCanvasElement | null = null;
-  private ascentCache: Map<string, number> = new Map();
+  private fontMetricsCache = new Map<
+    string,
+    { ascent: number; baseline: number }
+  >();
   private readonly canvas: HTMLCanvasElement;
   private readonly host: HTMLElement;
   private viewportWidth: number;
@@ -76,6 +79,10 @@ class CSSRenderer {
     this.container.style.setProperty(
       "--dm-unit",
       `${height / this.config.canvasHeight}px`,
+    );
+    this.container.style.setProperty(
+      "--dm-display-scale",
+      String(height / this.config.canvasHeight),
     );
   };
 
@@ -267,14 +274,18 @@ class CSSRenderer {
     // owner コメント(投稿者コメント)はスケール調整の対象外
     const rawLayerScale =
       c.layer === -1 && !comment.owner ? this.options.scale : 1;
-    const { fontSize: renderFontSize, scale: fontScale } = getFontSizeAndScale(
-      c.charSize,
-      this.config,
-    );
+    // Flash stores a font size plus resize scale; HTML5 stores charSize.
+    // In particular Flash charSize is zero, so the HTML5 calculation would
+    // make every old comment disappear when CSS follows Auto selection.
+    const { fontSize: renderFontSize, scale: fontScale } = comment.flash
+      ? { fontSize: c.fontSize, scale: c.scale }
+      : getFontSizeAndScale(c.charSize, this.config);
     const layerScale = rawLayerScale;
     const fontSizePx = renderFontSize * drawScale * fontScale * layerScale;
 
-    const lineHeightPx = c.lineHeight * drawScale * layerScale;
+    const lineHeightPx = comment.flash
+      ? c.fontSize * c.lineHeight * drawScale * fontScale * layerScale
+      : c.lineHeight * drawScale * layerScale;
 
     const paddingTop =
       (10 - fontScale * 10) *
@@ -316,11 +327,11 @@ class CSSRenderer {
       lineHeightPx / 2 + fontSizePx / 2 - ascentRendered;
 
     element.style.top = `calc(${posY} * var(--dm-unit))`;
-    element.style.paddingTop = `calc(${paddingTopCanvas + offsetYCanvas + baselineCorrection} * var(--dm-unit))`;
+    element.style.paddingTop = comment.flash
+      ? "0"
+      : `calc(${paddingTopCanvas + offsetYCanvas + baselineCorrection} * var(--dm-unit))`;
     element.style.fontSize = `calc(${fontSizePx} * var(--dm-unit))`;
-    element.style.lineHeight = String(
-      c.lineHeight / (renderFontSize * fontScale),
-    );
+    element.style.lineHeight = String(lineHeightPx / fontSizePx);
     element.style.color = c.color;
     element.style.zIndex = String(
       (comment.owner ? 0x40000000 : 0) +
@@ -414,10 +425,9 @@ class CSSRenderer {
     // owner コメント(投稿者コメント)はスケール調整の対象外
     const rawLayerScale =
       c.layer === -1 && !comment.owner ? this.options.scale : 1;
-    const { fontSize: renderFontSize, scale: fontScale } = getFontSizeAndScale(
-      c.charSize,
-      this.config,
-    );
+    const { fontSize: renderFontSize, scale: fontScale } = comment.flash
+      ? { fontSize: c.fontSize, scale: c.scale }
+      : getFontSizeAndScale(c.charSize, this.config);
     const layerScale = rawLayerScale;
     const fontSizePx = renderFontSize * commentScale * fontScale * layerScale;
 
@@ -475,6 +485,10 @@ class CSSRenderer {
     const c = comment.comment;
     const suffix = c.comboSuffix;
     const content = comment.content;
+    if (comment.flash) {
+      this.applyFlashContent(element, comment);
+      return;
+    }
     if (!comment.flash && c.content.some((item) => item.type === "spacer")) {
       element.replaceChildren();
       for (const item of c.content) {
@@ -517,6 +531,113 @@ class CSSRenderer {
     element.dataset.dmComboSuffix = suffix;
   }
 
+  private applyFlashContent(element: HTMLDivElement, comment: IComment): void {
+    const c = comment.comment;
+    const layerScale =
+      c.layer === -1 && !comment.owner ? this.options.scale : 1;
+    const scale =
+      getConfig(this.config.commentScale, true) * c.scale * layerScale;
+    const lineHeight = c.fontSize * c.lineHeight;
+    const offsetKey = c.resizedY ? "resized" : "default";
+    const offsetY =
+      this.config.flashCommentYPaddingTop[offsetKey] +
+      lineHeight * this.config.flashCommentYOffset[c.size][offsetKey];
+    const buttonPadding = getConfig(this.config.atButtonPadding, true) * 2;
+    const suffixStart = c.comboSuffix
+      ? comment.content.length - c.comboSuffix.length
+      : Infinity;
+
+    // Keep the measured collision box on the animated outer element. A
+    // separate layer stretches glyphs and advances exactly like Flash's
+    // canvas image, without scaling the scrolling translation.
+    element.replaceChildren();
+    element.style.width = `calc(${c.width} * var(--dm-unit))`;
+    element.style.height = `calc(${c.height} * var(--dm-unit))`;
+    // Fixed-combo suffixes can trigger a new width resize while visible.
+    element.style.fontSize = `calc(${c.fontSize * scale} * var(--dm-unit))`;
+    element.style.lineHeight = String(c.lineHeight);
+    element.style.webkitTextStroke = `calc(${getConfig(this.config.contextLineWidth, true) * scale} * var(--dm-unit)) ${getStrokeColor(c, this.config)}`;
+    const layer = document.createElement("span");
+    layer.dataset.dmFlash = "";
+    layer.style.position = "absolute";
+    layer.style.left = "0";
+    layer.style.top = "0";
+    layer.style.width = `${c.width / scale / c.scaleX}px`;
+    layer.style.height = `${(c.height + (c.button ? buttonPadding : 0)) / scale}px`;
+    layer.style.overflow = "hidden";
+    layer.style.transformOrigin = "0 0";
+    // Resolve the font at Flash's original size before applying its image
+    // scale. WebKit rounds color-emoji advances at font resolution time;
+    // resolving at the final CSS size would change measured line widths.
+    layer.style.fontSize = `${c.fontSize}px`;
+    layer.style.webkitTextStroke = `${getConfig(this.config.contextLineWidth, true)}px ${getStrokeColor(c, this.config)}`;
+    layer.style.transform = `scale(calc(${scale * c.scaleX} * var(--dm-display-scale)), calc(${scale} * var(--dm-display-scale)))`;
+    element.appendChild(layer);
+
+    let left = 0;
+    let line = 0;
+    let textOffset = 0;
+    let wasButton = false;
+    for (const item of c.content) {
+      if (item.type === "spacer") {
+        const span = document.createElement("span");
+        span.dataset.dmSpacer = "";
+        span.textContent = item.char.repeat(item.count);
+        // Spacer advance is explicit in Flash; its glyph is never painted.
+        span.style.visibility = "hidden";
+        span.style.position = "absolute";
+        span.style.left = `${left}px`;
+        span.style.width = `${item.count * item.charWidth * c.fontSize}px`;
+        layer.appendChild(span);
+        left += item.count * item.charWidth * c.fontSize;
+        textOffset += span.textContent.length;
+        wasButton = !!item.isButton;
+        continue;
+      }
+      for (let i = 0; i < item.slicedContent.length; i++) {
+        const text = item.slicedContent[i];
+        if (text === undefined) continue;
+        if (c.button && !c.button.hidden && wasButton !== !!item.isButton) {
+          left += buttonPadding;
+        }
+        if (text) {
+          const span = document.createElement("span");
+          this.applyFont(span, item.font ?? c.font, true);
+          span.style.fontSize = "inherit";
+          span.style.lineHeight = "1";
+          const metrics = this.measureFontMetrics(
+            span.style.fontFamily,
+            span.style.fontWeight,
+          );
+          const baseline = (c.lineOffset + line + 1) * lineHeight + offsetY;
+          span.style.position = "absolute";
+          span.style.left = `${left}px`;
+          span.style.top = `${baseline - metrics.baseline * c.fontSize}px`;
+          const split = Math.max(0, suffixStart - textOffset);
+          if (split < text.length) {
+            span.appendChild(document.createTextNode(text.slice(0, split)));
+            const suffix = document.createElement("span");
+            suffix.textContent = text.slice(split);
+            suffix.style.color = c.comboSuffixColor ?? "inherit";
+            span.appendChild(suffix);
+          } else {
+            span.textContent = text;
+          }
+          layer.appendChild(span);
+        }
+        left += item.width[i] ?? 0;
+        textOffset += text.length;
+        if (i < item.slicedContent.length - 1) {
+          layer.appendChild(document.createTextNode("\n"));
+          left = 0;
+          line++;
+          textOffset++;
+        }
+      }
+      wasButton = !!item.isButton;
+    }
+  }
+
   /**
    * fixedCombo 宿主の段階更新を DOM に反映する。
    * エンジン側(_updateFixedCombo)が comment.content / comboSuffix を更新済みなので、
@@ -553,8 +674,12 @@ class CSSRenderer {
     fontFamily: string,
     fontWeight: string,
   ): number {
+    return this.measureFontMetrics(fontFamily, fontWeight).ascent;
+  }
+
+  private measureFontMetrics(fontFamily: string, fontWeight: string) {
     const cacheKey = `${fontFamily}|${fontWeight}`;
-    const cached = this.ascentCache.get(cacheKey);
+    const cached = this.fontMetricsCache.get(cacheKey);
     if (cached !== undefined) return cached;
 
     if (!this.measureCanvas) {
@@ -562,37 +687,28 @@ class CSSRenderer {
     }
     const ctx = this.measureCanvas.getContext("2d");
     if (!ctx) {
-      return 0.9;
+      return { ascent: 0.9, baseline: 0.85 };
     }
     const measureFontSize = 100;
     ctx.font = `${fontWeight} ${measureFontSize}px ${fontFamily}`;
     const metrics = ctx.measureText("Ag");
     const ascent =
       (metrics as TextMetrics).fontBoundingBoxAscent ?? measureFontSize * 0.9;
-    const fraction = ascent / measureFontSize;
-    this.ascentCache.set(cacheKey, fraction);
-    return fraction;
+    const descent = metrics.fontBoundingBoxDescent ?? measureFontSize * 0.2;
+    const result = {
+      ascent: ascent / measureFontSize,
+      baseline: (measureFontSize + ascent - descent) / 2 / measureFontSize,
+    };
+    this.fontMetricsCache.set(cacheKey, result);
+    return result;
   }
 
-  private applyFont(
-    element: HTMLDivElement,
-    font: CommentFont,
-    isFlash: boolean,
-  ) {
-    if (isFlash) {
+  private applyFont(element: HTMLElement, font: CommentFont, isFlash: boolean) {
+    if (isFlash && (font === "gulim" || font === "simsun")) {
       const flashFonts = this.config.fonts.flash as Record<string, string>;
       const fontTemplate = flashFonts[font] || flashFonts.gulim;
       if (fontTemplate) {
-        const parts = fontTemplate.split("[size]px");
-        if (parts.length === 2) {
-          const before = parts[0]?.trim() ?? "";
-          const after = parts[1]?.trim() ?? "";
-          const weightMatch = before.match(/(\d+)\s*$/);
-          if (weightMatch?.[1]) {
-            element.style.fontWeight = weightMatch[1];
-          }
-          element.style.fontFamily = after;
-        }
+        element.style.font = fontTemplate.replace("[size]", "100");
       }
     } else {
       const html5Fonts = this.config.fonts.html5;
@@ -651,7 +767,7 @@ class CSSRenderer {
     this.styleElement.remove();
     this.pool = [];
     this.measureCanvas = null;
-    this.ascentCache.clear();
+    this.fontMetricsCache.clear();
   }
 }
 

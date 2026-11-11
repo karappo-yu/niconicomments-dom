@@ -22,6 +22,7 @@ IINA の WKWebView 環境に特化したため、汎用ライブラリとして�
 | **フォント縮小の下限** | 縮小時、フォントが medium サイズの 25% 未満にならないよう測定レイヤーで調整。測定・レイアウト・描画のデータが一致します |
 | **DOM ノードのプール** | 最大 512 個の DOM ノードを再利用し、コメントが集中する場面でも生成・破棄のコストを抑えます |
 | **`mode: "css"` の追加** | `ModeType` と typeGuard に `"css"` を追加 |
+| **CSS の Auto 互換** | Canvas Auto と同じ投稿日時・コマンドによる Flash / HTML5 判定を使用。`gothic` / `mincho` / `defont` と `nico:flash` を尊重し、Flash コメントのフォント分割・互換空白・行間・縮小・字間を DOM に反映 |
 | **`_resolveCommentPositions` の切り出し** | CSS モードが `drawCanvas` から直接位置を解決できるよう、main.ts の位置解決ロジックを分離 |
 | **CSS モード用の公開 API** | `pauseCSS` / `resumeCSS` / `getVisibleComments`(一時停止・再開・表示中のコメント一覧の取得) |
 

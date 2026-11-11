@@ -22,6 +22,7 @@ It is specialized for IINA's WKWebView environment, so general-purpose compatibi
 | **Font scale floor** | When scaling down, font size never drops below 25% of medium size, enforced at the measurement layer so measurement/layout/rendering stay consistent |
 | **Object pool** | Reuses up to 512 DOM nodes via a pool to cut DOM churn during burst |
 | **`mode: "css"` added** | `"css"` added to `ModeType` and typeGuard |
+| **CSS follows Auto** | Shares Canvas Auto's Flash/HTML5 selection by posting date, including `gothic` / `mincho` / `defont` and `nico:flash` overrides. Flash DOM uses the engine's font runs, compatibility spacers, line height, resizing and letter spacing alongside modern comments |
 | **`_resolveCommentPositions` extracted** | Position-resolution logic extracted in main.ts so CSS mode can resolve positions directly from `drawCanvas` |
 | **`pauseCSS` / `resumeCSS` / `getVisibleComments`** | Public CSS-mode APIs: pause/resume and visible-comment listing |
 

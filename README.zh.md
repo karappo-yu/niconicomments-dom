@@ -20,6 +20,7 @@
 | **字号缩小下限 (font scale floor)** | 缩小时字号不低于 medium 的 25%。在测量层统一抬升 charSize/lineHeight/fontSize/height/width,保证测量、布局、渲染数据一致 |
 | **对象池** | 最多复用 512 个 DOM 节点,降低弹幕爆发时的 DOM 创建/销毁开销 |
 | **`mode: "css"` 接入** | 在 `ModeType` 与 typeGuard 中新增 `"css"` 模式 |
+| **CSS 对齐 Auto** | 与 Canvas Auto 共用 Flash/H5 判断：默认按投稿时间分流，尊重 `gothic` / `mincho` / `defont` 和 `nico:flash`。Flash DOM 使用引擎的字体分段、兼容空白、行距、缩放与字距，支持新旧弹幕混排 |
 | **`_resolveCommentPositions` 抽取** | 从 main.ts 抽出位置解析逻辑,CSS 模式可直接从 `drawCanvas` 解析位置后交给 DOM 渲染器 |
 | **`pauseCSS` / `resumeCSS` / `getVisibleComments`** | CSS 模式专用公开 API:暂停/恢复、获取当前可见弹幕列表 |
 
