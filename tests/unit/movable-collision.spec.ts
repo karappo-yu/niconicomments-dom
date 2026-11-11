@@ -77,6 +77,26 @@ describe("movable comment collision", () => {
     expect(laterNormal.posY).toBe(slowLeading.height);
   });
 
+  test("indexes earlier equal-duration comments when a late second duration arrives", () => {
+    const collision = createCollision();
+    const timeline: Timeline = {};
+    for (let i = 0; i < 50; i++) {
+      process(
+        createMovableComment(i, -60000 + i * 1100, 1000),
+        collision,
+        timeline,
+      );
+    }
+    const leading = createMovableComment(50, 0, 1000);
+    process(leading, collision, timeline);
+    const later = createMovableComment(51, 250, 300);
+    process(later, collision, timeline);
+    expect(leading.posY).toBe(0);
+    expect(later.posY).toBe(leading.height);
+    process(later, collision, timeline);
+    expect(timeline[250]?.filter((item) => item === later)).toHaveLength(1);
+  });
+
   test("allows different-duration comments with overlapping active ranges but non-intersecting trajectories to share a row", () => {
     const collision = createCollision();
     const timeline: Timeline = {};
