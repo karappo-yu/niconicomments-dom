@@ -44,7 +44,6 @@ const CSS = `
   white-space: pre;
   pointer-events: none;
   paint-order: stroke fill;
-  stroke-linejoin: round;
 }
 `;
 
@@ -305,8 +304,10 @@ class CSSRenderer {
       : c.lineHeight * drawScale * layerScale;
 
     const paddingTop =
-      (10 - fontScale * 10) *
-      ((c.lineCount + 1) / this.config.html5HiResCommentCorrection);
+      comment.owner && c.resizedX
+        ? (10 - fontScale * 10) *
+          ((c.lineCount + 1) / this.config.html5HiResCommentCorrection)
+        : 0;
     const paddingTopCanvas = paddingTop * lineHeightPx;
 
     const fontOffset =
@@ -336,17 +337,18 @@ class CSSRenderer {
 
     this.applyFont(element, c.font, comment.flash);
 
-    const fontFamily = element.style.fontFamily || "sans-serif";
-    const fontWeight = element.style.fontWeight || "400";
-    const ascentFraction = this.measureAscentFraction(fontFamily, fontWeight);
-    const ascentRendered = ascentFraction * fontSizePx;
-    const baselineCorrection =
-      lineHeightPx / 2 + fontSizePx / 2 - ascentRendered;
+    let paddingTopCss = "0";
+    if (!comment.flash) {
+      const fontFamily = element.style.fontFamily || "sans-serif";
+      const fontWeight = element.style.fontWeight || "400";
+      const metrics = this.measureFontMetrics(fontFamily, fontWeight);
+      const baselineCorrection =
+        lineHeightPx / 2 + fontSizePx / 2 - metrics.baseline * fontSizePx;
+      paddingTopCss = `calc(${paddingTopCanvas + offsetYCanvas + baselineCorrection} * var(--dm-unit))`;
+    }
 
     element.style.top = `calc(${posY} * var(--dm-unit))`;
-    element.style.paddingTop = comment.flash
-      ? "0"
-      : `calc(${paddingTopCanvas + offsetYCanvas + baselineCorrection} * var(--dm-unit))`;
+    element.style.paddingTop = paddingTopCss;
     element.style.fontSize = `calc(${fontSizePx} * var(--dm-unit))`;
     element.style.lineHeight = String(lineHeightPx / fontSizePx);
     element.style.color = c.color;
@@ -356,12 +358,15 @@ class CSSRenderer {
         1,
     );
     element.style.webkitTextStroke = `calc(${strokeWidthPx} * var(--dm-unit)) ${strokeColor}`;
-    if (strokeWidthPx > 0) {
-      element.style.textShadow = `0 0 2px ${strokeColor}`;
-    }
 
     if (effectiveAlpha !== 1) {
       element.style.opacity = String(effectiveAlpha);
+    }
+
+    if (!comment.flash && (c.fillColor || c.wakuColor)) {
+      element.style.boxSizing = "border-box";
+      element.style.width = `calc(${c.width} * var(--dm-unit))`;
+      element.style.height = `calc(${c.height} * var(--dm-unit))`;
     }
 
     if (c.fillColor) {
@@ -369,8 +374,9 @@ class CSSRenderer {
     }
 
     if (c.wakuColor) {
-      const borderWidthPx = lineWidth * drawScale * layerScale;
-      element.style.border = `calc(${borderWidthPx} * var(--dm-unit)) solid ${c.wakuColor}`;
+      const borderWidthPx = getConfig(this.config.contextLineWidth, false);
+      element.style.outline = `calc(${borderWidthPx} * var(--dm-unit)) solid ${c.wakuColor}`;
+      element.style.outlineOffset = `calc(${-borderWidthPx / 2} * var(--dm-unit))`;
     }
 
     if (comment.loc === "naka") {
@@ -669,6 +675,10 @@ class CSSRenderer {
     const c = comment.comment;
     if (element.textContent !== comment.content) {
       this.applyComboContent(element, comment);
+      if (!comment.flash && (c.fillColor || c.wakuColor)) {
+        element.style.width = `calc(${c.width} * var(--dm-unit))`;
+        element.style.height = `calc(${c.height} * var(--dm-unit))`;
+      }
       // 本体色不变(fixedCombo 宿主保持原生样式),同步以防外部改色
       element.style.color = c.color;
       // z 序: 計数が進む(生命周期が繋がる)たびに、最後に繋がったメンバーの
@@ -688,13 +698,6 @@ class CSSRenderer {
   private getEffectiveAlpha(c: FormattedCommentWithSize): number {
     if (typeof c.opacity === "number") return c.opacity;
     return c._live ? this.config.contextFillLiveOpacity : 1;
-  }
-
-  private measureAscentFraction(
-    fontFamily: string,
-    fontWeight: string,
-  ): number {
-    return this.measureFontMetrics(fontFamily, fontWeight).ascent;
   }
 
   private measureFontMetrics(fontFamily: string, fontWeight: string) {
