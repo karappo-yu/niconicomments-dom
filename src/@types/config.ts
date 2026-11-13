@@ -98,7 +98,7 @@ export type BaseConfig = {
   nakaDedupeWindow: number;
   lineBreakCount: { [key in CommentSize]: number };
   nakaCommentSpeedOffset: number;
-  /** Independent horizontal speed multiplier; native durations remain intact. */
+  /** Viewer horizontal speed multiplier; owners and native durations remain intact. */
   scrollSpeed: number;
   atButtonPadding: number;
   atButtonRadius: number;

@@ -127,4 +127,79 @@ describe("independent scroll speed", () => {
     }
     nc.destroy();
   });
+  test.each([
+    0.25, 0.5, 2,
+  ])("owner motion and visibility stay native at speed %s", (speed) => {
+    const rows = [
+      { ...row(1), owner: true },
+      { ...row(2, ["@7"]), owner: true },
+      row(3),
+    ];
+    const make = (scrollSpeed: number) =>
+      new NiconiComments(new Surface(), rows, {
+        format: "formatted",
+        mode: "html5",
+        config: { scrollSpeed },
+      });
+    const normal = make(1),
+      changed = make(speed);
+    for (const index of [0, 1]) {
+      const a = state(normal).comments[index],
+        b = state(changed).comments[index];
+      if (!a || !b) throw new Error("Missing owner");
+      expect(range(changed, index + 1)).toEqual(range(normal, index + 1));
+      for (const vpos of [50, 100, 200, 400]) {
+        expect(getPosX(b.comment, vpos, state(changed).ctx.config)).toBeCloseTo(
+          getPosX(a.comment, vpos, state(normal).ctx.config),
+        );
+      }
+    }
+    expect(range(changed, 3)).not.toEqual(range(normal, 3));
+    changed.setScrollSpeed(1);
+    changed.drawCanvas(200);
+    expect(range(changed, 1)).toEqual(range(normal, 1));
+    normal.destroy();
+    changed.destroy();
+  });
+
+  test("multiple speed setters coalesce into one relayout at the next draw", () => {
+    const nc = create(1);
+    nc.drawCanvas(200);
+    const initial = state(nc).timeline;
+    const reflow = vi.spyOn(
+      nc as unknown as { reflowMotion(vpos: number): void },
+      "reflowMotion",
+    );
+    nc.setScrollSpeed(0.75);
+    nc.setScrollSpeed(0.5);
+    nc.setScrollSpeed(0.25);
+    expect(state(nc).timeline).toBe(initial);
+    expect(reflow).not.toHaveBeenCalled();
+    nc.drawCanvas(200);
+    expect(reflow).toHaveBeenCalledTimes(1);
+    nc.drawCanvas(200, true);
+    expect(reflow).toHaveBeenCalledTimes(1);
+    nc.destroy();
+  });
+  test("lazy lookahead retains native owner lead-in when viewers run faster", () => {
+    const make = (scrollSpeed: number) =>
+      new NiconiComments(
+        new Surface(),
+        [{ ...row(1, ["@120"], 10000), owner: true }],
+        {
+          format: "formatted",
+          mode: "html5",
+          lazy: true,
+          config: { scrollSpeed },
+        },
+      );
+    const normal = make(1),
+      fast = make(4);
+    normal.drawCanvas(8400);
+    fast.drawCanvas(8400);
+    expect(range(normal, 1).length).toBeGreaterThan(0);
+    expect(range(fast, 1)).toEqual(range(normal, 1));
+    normal.destroy();
+    fast.destroy();
+  });
 });

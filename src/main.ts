@@ -168,6 +168,7 @@ class NiconiComments {
   private lastCursor?: Position;
   private lastFrameBanActive: boolean;
   private frameDirty: boolean;
+  private pendingMotionLayout = false;
   private lastRendererWidth: number;
   private lastRendererHeight: number;
   private rendererScale: number;
@@ -841,6 +842,7 @@ class NiconiComments {
     };
 
     const vposInt = Math.floor(vpos);
+    if (this.pendingMotionLayout) this.reflowMotion(vposInt);
     const drawCanvasStart = performance.now();
     const requiresVideoRedraw = rendererHasVideoSurface(this.renderer);
     const rendererNeedsRedraw = this.renderer.needsRedraw?.() ?? false;
@@ -1334,7 +1336,7 @@ class NiconiComments {
     }
   }
 
-  /** Update motion without reparsing, remeasuring, or recreating the renderer. */
+  /** Queue motion relayout for the next draw; preserve owners, parsed data and DOM. */
   public setScrollSpeed(speed: number): boolean {
     if (
       this.destroyed ||
@@ -1345,6 +1347,13 @@ class NiconiComments {
     )
       return false;
     this.ctx.config.scrollSpeed = speed;
+    this.pendingMotionLayout = true;
+    this.frameDirty = true;
+    return true;
+  }
+
+  private reflowMotion(vpos: number) {
+    this.pendingMotionLayout = false;
     this.collision = { ue: {}, shita: {}, left: {}, right: {} };
     this.timeline = {};
     this.processedCommentIndex = -1;
@@ -1354,12 +1363,11 @@ class NiconiComments {
       this.getCommentPos(this.comments, this.comments.length);
       this.sortTimelineComment();
     } else {
-      this.resolveLazyCommentWindow(this.lastVposInt);
+      this.resolveLazyCommentWindow(vpos);
     }
     this._cachedSplit = null;
     this.frameDirty = true;
-    this.cssRenderer?.refreshMotion();
-    return true;
+    this.cssRenderer?.invalidateMotion();
   }
 
   public setPlaybackSpeed(speed: number) {

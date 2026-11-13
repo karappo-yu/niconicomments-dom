@@ -102,7 +102,8 @@ export const getLazyCommentLookahead = (
         )
       : 0;
   return Math.ceil(
-    (standardLookahead + Math.min(MAX_COMMENT_LONG, extra)) / scrollSpeed,
+    (standardLookahead + Math.min(MAX_COMMENT_LONG, extra)) /
+      Math.min(1, scrollSpeed),
   );
 };
 
@@ -225,17 +226,20 @@ const getMovableCollisionIndex = (collision: Collision) => {
 // One motion model drives Canvas positions, CSS transitions, visibility and
 // collision sampling. Never write an effective duration into native long/mail.
 export const getScrollDuration = (
-  comment: Pick<FormattedCommentWithSize, "long">,
+  comment: Pick<FormattedCommentWithSize, "long" | "owner">,
   config: BaseConfig,
-) => (comment.long + 100) / config.scrollSpeed - 100;
+) =>
+  comment.owner
+    ? comment.long
+    : (comment.long + 100) / config.scrollSpeed - 100;
 
 export const getScrollSpeed = (
-  comment: Pick<FormattedCommentWithSize, "long" | "width">,
+  comment: Pick<FormattedCommentWithSize, "long" | "width" | "owner">,
   config: BaseConfig,
 ) =>
   ((config.commentDrawRange + comment.width * config.nakaCommentSpeedOffset) /
     (comment.long + 100)) *
-  config.scrollSpeed;
+  (comment.owner ? 1 : config.scrollSpeed);
 
 const getMovableCommentBeforeVpos = (comment: IComment, config: BaseConfig) =>
   Math.round(
@@ -329,7 +333,7 @@ const registerMovableCollisionComment = (
   const index = getMovableCollisionIndex(collision);
   if (index.registeredComments.has(comment)) return;
   index.registeredComments.add(comment);
-  index.durations.add(comment.long);
+  index.durations.add(getScrollDuration(comment, config));
   if (index.durations.size === 1) {
     index.pending.push(comment);
     return;
@@ -384,7 +388,10 @@ const getAnalyticMovableCollisionCandidates = (
 ) => {
   const index = getMovableCollisionIndex(collision);
   if (index.durations.size === 0) return undefined;
-  if (index.durations.size === 1 && index.durations.has(comment.long)) {
+  if (
+    index.durations.size === 1 &&
+    index.durations.has(getScrollDuration(comment, config))
+  ) {
     return undefined;
   }
   flushPendingMovableCollisionComments(index, config);
@@ -407,7 +414,8 @@ const getAnalyticMovableCollisionCandidates = (
         if (
           seen.has(candidate) ||
           candidate === comment ||
-          candidate.long === comment.long
+          getScrollDuration(candidate, config) ===
+            getScrollDuration(comment, config)
         ) {
           continue;
         }
