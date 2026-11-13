@@ -492,7 +492,9 @@ class BaseComment implements IComment {
 
   protected getCacheKey() {
     const mail = boundedCachePart(JSON.stringify(this.comment.mail ?? []));
-    return `${this.pluginName}\0${mail}\0${boundedCachePart(this.comment.rawContent)}`;
+    const suffix = boundedCachePart(this.comment.comboSuffix ?? "");
+    const suffixColor = boundedCachePart(this.comment.comboSuffixColor ?? "");
+    return `${this.pluginName}\0${mail}\0${boundedCachePart(this.comment.rawContent)}\0${suffix}\0${suffixColor}`;
   }
 
   private _setCommentImageClearTimeout(lifetime: number): void {

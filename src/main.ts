@@ -188,8 +188,8 @@ class NiconiComments {
   private destroyed = false;
   private readonly renderer: IRenderer;
   private cssRenderer: CSSRenderer | null = null;
-  private readonly collision: Collision;
-  private readonly timeline: Timeline;
+  private collision: Collision;
+  private timeline: Timeline;
   private readonly ctx: CommentInstanceContext;
   private readonly eventHandler: EventHandler;
   private plugins: IPluginList = [];
@@ -613,6 +613,7 @@ class NiconiComments {
         this.ctx.config.canvasWidth,
         Math.max(0, this.ctx.viewport?.offsetX ?? 0),
         this.ctx.config.commentDrawRange,
+        this.ctx.config.scrollSpeed,
       );
     let endIndex = startIndex - 1;
     for (let i = startIndex; i < scanEndIndex; i++) {
@@ -1331,6 +1332,34 @@ class NiconiComments {
     if (this.cssRenderer) {
       this.cssRenderer.resume();
     }
+  }
+
+  /** Update motion without reparsing, remeasuring, or recreating the renderer. */
+  public setScrollSpeed(speed: number): boolean {
+    if (
+      this.destroyed ||
+      !Number.isFinite(speed) ||
+      speed < 0.25 ||
+      speed > 4 ||
+      speed === this.ctx.config.scrollSpeed
+    )
+      return false;
+    this.ctx.config.scrollSpeed = speed;
+    this.collision = { ue: {}, shita: {}, left: {}, right: {} };
+    this.timeline = {};
+    this.processedCommentIndex = -1;
+    this.nextUnprocessedCommentIndex = 0;
+    for (const comment of this.comments) comment.posY = -1;
+    if (!this.ctx.options.lazy || !this.lazyCommentOrderSortedByVpos) {
+      this.getCommentPos(this.comments, this.comments.length);
+      this.sortTimelineComment();
+    } else {
+      this.resolveLazyCommentWindow(this.lastVposInt);
+    }
+    this._cachedSplit = null;
+    this.frameDirty = true;
+    this.cssRenderer?.refreshMotion();
+    return true;
   }
 
   public setPlaybackSpeed(speed: number) {

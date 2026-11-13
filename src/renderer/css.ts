@@ -7,6 +7,7 @@ import type {
   IComment,
 } from "@/@types/";
 import { getConfig, getFontSizeAndScale, getStrokeColor } from "@/utils";
+import { getScrollSpeed } from "@/utils/comment";
 
 const POOL_MAX_SIZE = 512;
 
@@ -414,6 +415,26 @@ class CSSRenderer {
     }
   }
 
+  /** Reuse active DOM and font runs after an in-place motion relayout. */
+  refreshMotion() {
+    for (const [index, element] of this.activeElements) {
+      const comment = (element as HTMLDivElement & { __dmComment?: IComment })
+        .__dmComment;
+      if (!comment) continue;
+      const posY =
+        comment.loc === "shita"
+          ? this.config.canvasHeight - comment.posY - comment.height
+          : comment.posY;
+      element.style.top = `calc(${posY} * var(--dm-unit))`;
+      if (comment.loc === "naka")
+        this.reanimateScroll(
+          comment,
+          this.lastUpdateVpos,
+          this.activeElementReverse.get(index) ?? false,
+        );
+    }
+  }
+
   private setupScrollAnimation(
     element: HTMLDivElement,
     comment: IComment,
@@ -431,10 +452,7 @@ class CSSRenderer {
     const layerScale = rawLayerScale;
     const fontSizePx = renderFontSize * commentScale * fontScale * layerScale;
 
-    const speed =
-      (this.config.commentDrawRange +
-        c.width * this.config.nakaCommentSpeedOffset) /
-      (comment.long + 100);
+    const speed = getScrollSpeed(comment, this.config);
 
     const vposLapsed = vpos - comment.vpos;
     const normalXPx =

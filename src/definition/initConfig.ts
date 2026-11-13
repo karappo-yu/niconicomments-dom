@@ -347,6 +347,7 @@ const initConfig = () => {
      * nakaコメントの速度補正値
      */
     nakaCommentSpeedOffset: 0.95,
+    scrollSpeed: 1,
     /**
      * \@ボタンのボタンに適用する余白
      */

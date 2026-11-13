@@ -461,6 +461,7 @@ const isValidConfig = (item: unknown): boolean => {
       }),
     lineBreakCount: isBoundedLineBreakCount,
     lineHeight: isBoundedLineHeightConfig,
+    scrollSpeed: (i) => isFiniteNumberInRange(i, { min: 0.25, max: 4 }),
     nakaCommentSpeedOffset: (i) =>
       isFiniteNumberInRange(i, { max: MAX_CONFIG_RATIO }),
     plugins: isValidPlugins,
