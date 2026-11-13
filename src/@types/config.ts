@@ -53,6 +53,8 @@ export type BaseConfig = {
   contextStrokeColor: string;
   contextStrokeInversionColor: string;
   contextStrokeOpacity: number;
+  /** CSS-only shadow blur, 0–10 px before comment/display scaling; 0 disables it. */
+  cssTextShadowBlur: number;
   flashChar: FlashCharList;
   flashMode: FlashMode;
   flashScriptChar: FlashScriptChar;

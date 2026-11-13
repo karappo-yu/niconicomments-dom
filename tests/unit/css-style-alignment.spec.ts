@@ -313,7 +313,90 @@ describe("CSSRenderer style alignment with Canvas", () => {
       expect(container.children).toHaveLength(2);
       for (const el of container.children as FakeElement[]) {
         expect(el.style.webkitTextStroke).toContain("var(--dm-unit)");
-        expect(el.style.textShadow).toBe("");
+        expect(el.style.textShadow).toBe("none");
+      }
+    } finally {
+      renderer.destroy();
+    }
+  });
+
+  test.each([
+    0, 2.5, 10,
+  ])("scales HTML5 shadow blur %s and paints Flash shadows on the glyph layer", (blur) => {
+    const renderer = new CSSRenderer(
+      canvas as unknown as HTMLCanvasElement,
+      { ...defaultConfig, cssTextShadowBlur: blur },
+      { ...defaultOptions, mode: "css", scale: 0.5 },
+    );
+    try {
+      const html5 = createHtml5Comment({
+        index: 0,
+        charSize: 10,
+        lineHeight: 12,
+      });
+      const flash = {
+        ...createHtml5Comment({ index: 1, fontSize: 24, scale: 0.5 }),
+        flash: true,
+      };
+      renderer.updateComments([html5, flash], 100, activeState);
+      const container = host.children.find(
+        (el) =>
+          el instanceof FakeElement &&
+          el.attributes.has("data-dm-css-container"),
+      ) as FakeElement;
+      const [html5El, flashEl] = container.children as FakeElement[];
+      if (!html5El || !flashEl) throw new Error("Missing comments");
+      const layer = flashEl.children[0] as FakeElement;
+      expect(flashEl.style.textShadow).toBe("none");
+      if (blur === 0) {
+        expect(html5El.style.textShadow).toBe("none");
+        expect(layer.style.textShadow).toBe("none");
+      } else {
+        expect(html5El.style.textShadow).toContain(
+          `0 0 calc(${blur * defaultConfig.commentScale.html5 * 0.8 * 0.5} * var(--dm-unit))`,
+        );
+        expect(layer.style.textShadow).toContain(`0 0 ${blur}px`);
+        expect(layer.style.textShadow).toContain("rgba(0,0,0,0.4)");
+        // Fixed combo content replacement must retain the Flash shadow.
+        flash.content = "replacement";
+        renderer.updateComments([html5, flash], 120, activeState);
+        expect((flashEl.children[0] as FakeElement).style.textShadow).toBe(
+          layer.style.textShadow,
+        );
+      }
+    } finally {
+      renderer.destroy();
+    }
+  });
+
+  test("does not draw a shadow when that comment's stroke is disabled", () => {
+    const renderer = new CSSRenderer(
+      canvas as unknown as HTMLCanvasElement,
+      {
+        ...defaultConfig,
+        cssTextShadowBlur: 5,
+        contextLineWidth: { html5: 0, flash: 0 },
+      },
+      { ...defaultOptions, mode: "css" },
+    );
+    try {
+      renderer.updateComments(
+        [
+          createHtml5Comment(),
+          { ...createHtml5Comment({ index: 1 }), flash: true },
+        ],
+        100,
+        activeState,
+      );
+      const container = host.children.find(
+        (el) =>
+          el instanceof FakeElement &&
+          el.attributes.has("data-dm-css-container"),
+      ) as FakeElement;
+      for (const el of container.children as FakeElement[]) {
+        expect(el.style.textShadow).toBe("none");
+        if (el.children.length)
+          expect((el.children[0] as FakeElement).style.textShadow).toBe("none");
       }
     } finally {
       renderer.destroy();
