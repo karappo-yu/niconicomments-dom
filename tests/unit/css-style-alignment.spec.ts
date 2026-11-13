@@ -3,6 +3,7 @@ import type { FrameActiveState, IComment } from "@/@types";
 import { defaultConfig, defaultOptions } from "@/definition/config";
 import { initConfig } from "@/definition/initConfig";
 import { CSSRenderer } from "@/renderer/css";
+import { getCharSize, getFontSizeAndScale } from "@/utils";
 
 class FakeStyle {
   [key: string]: unknown;
@@ -353,8 +354,15 @@ describe("CSSRenderer style alignment with Canvas", () => {
         expect(html5El.style.textShadow).toBe("none");
         expect(layer.style.textShadow).toBe("none");
       } else {
+        // charSize 10 -> fontSize 10, fontScale 0.8; blur follows glyph size
+        // relative to a standard medium comment.
+        const standardFontSize = getFontSizeAndScale(
+          getCharSize("medium", false, defaultConfig),
+          defaultConfig,
+        ).fontSize;
+        const glyphScale = (10 * 0.8) / standardFontSize;
         expect(html5El.style.textShadow).toContain(
-          `0 0 calc(${blur * defaultConfig.commentScale.html5 * 0.8 * 0.5} * var(--dm-unit))`,
+          `0 0 calc(${blur * glyphScale * defaultConfig.commentScale.html5 * 0.5} * var(--dm-unit))`,
         );
         expect(layer.style.textShadow).toContain(`0 0 ${blur}px`);
         expect(layer.style.textShadow).toContain("rgba(0,0,0,0.4)");

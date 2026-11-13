@@ -6,7 +6,7 @@ import type {
   FrameActiveState,
   IComment,
 } from "@/@types/";
-import { getConfig, getFontSizeAndScale, getStrokeColor } from "@/utils";
+import { getCharSize, getConfig, getFontSizeAndScale, getStrokeColor } from "@/utils";
 import { getScrollSpeed } from "@/utils/comment";
 
 const POOL_MAX_SIZE = 512;
@@ -364,9 +364,16 @@ class CSSRenderer {
     element.style.paintOrder = strokeWidthPx > 0 ? "stroke fill" : "normal";
     // Flash paints on its own transformed layer; avoid inheriting a shadow
     // already scaled for the HTML5 outer element.
+    // Blur follows each comment's own glyph size relative to a standard
+    // medium comment, so small fonts get proportionally softer shadows.
+    const standardFontSize = getFontSizeAndScale(
+      getCharSize("medium", false, this.config),
+      this.config,
+    ).fontSize;
+    const glyphScale = (renderFontSize * fontScale) / (standardFontSize || 1);
     element.style.textShadow =
       !comment.flash && this.config.cssTextShadowBlur > 0
-        ? `0 0 calc(${this.config.cssTextShadowBlur * drawScale * fontScale * layerScale} * var(--dm-unit)) ${strokeColor}`
+        ? `0 0 calc(${this.config.cssTextShadowBlur * glyphScale * drawScale * layerScale} * var(--dm-unit)) ${strokeColor}`
         : "none";
 
     if (effectiveAlpha !== 1) {
@@ -611,9 +618,13 @@ class CSSRenderer {
       getConfig(this.config.contextLineWidth, true) > 0
         ? "stroke fill"
         : "normal";
+    // Scale the blur with the comment's own font size relative to a standard
+    // medium Flash comment; the layer transform scales it further.
+    const flashMediumFontSize =
+      getConfig(this.config.fontSize, true).medium.default || 1;
     layer.style.textShadow =
       this.config.cssTextShadowBlur > 0
-        ? `0 0 ${this.config.cssTextShadowBlur}px ${getStrokeColor(c, this.config)}`
+        ? `0 0 ${(this.config.cssTextShadowBlur * c.fontSize) / flashMediumFontSize}px ${getStrokeColor(c, this.config)}`
         : "none";
     layer.style.transform = `scale(calc(${scale * c.scaleX} * var(--dm-display-scale)), calc(${scale} * var(--dm-display-scale)))`;
     element.appendChild(layer);
