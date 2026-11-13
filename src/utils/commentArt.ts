@@ -32,14 +32,18 @@ type IndexedGroupedByTimeItem = GroupedByTimeItem & {
  * CAと思われるコメントのレイヤーを分離する
  * @param rawData コメントデータ
  * @param config インスタンス設定
+ * @param dedupe Remove repeated CA before assigning layers (default true)
  * @returns レイヤー分離後のコメントデータ
  */
 const changeCALayer = (
   rawData: FormattedComment[],
   config: BaseConfig,
+  dedupe = true,
 ): FormattedComment[] => {
   const userScoreList = getUsersScore(rawData);
-  const filteredComments = removeDuplicateCommentArt(rawData, config);
+  const filteredComments = dedupe
+    ? removeDuplicateCommentArt(rawData, config)
+    : rawData;
   const commentArts = filteredComments.filter(
     (comment) =>
       (userScoreList[comment.user_id] ?? 0) >= config.sameCAMinScore &&

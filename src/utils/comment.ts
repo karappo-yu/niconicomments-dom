@@ -82,6 +82,7 @@ export const getLazyCommentLookahead = (
   canvasWidth: number,
   viewportExpansion = 0,
   commentDrawRange = 1530,
+  scrollSpeed = 1,
 ) => {
   if (!Number.isFinite(canvasWidth) || canvasWidth <= 0) {
     return MAX_LAZY_COMMENT_LOOKAHEAD;
@@ -100,7 +101,10 @@ export const getLazyCommentLookahead = (
             commentDrawRange,
         )
       : 0;
-  return standardLookahead + Math.min(MAX_COMMENT_LONG, extra);
+  return Math.ceil(
+    (standardLookahead + Math.min(MAX_COMMENT_LONG, extra)) /
+      Math.min(1, scrollSpeed),
+  );
 };
 
 // Bound timeline growth even for an extreme host aspect ratio.
@@ -219,12 +223,36 @@ const getMovableCollisionIndex = (collision: Collision) => {
   return created;
 };
 
-const getMovableCommentBeforeVpos = (comment: IComment) =>
-  Math.round(-288 / ((1632 + comment.width) / (comment.long + 125))) - 100;
+// One motion model drives Canvas positions, CSS transitions, visibility and
+// collision sampling. Never write an effective duration into native long/mail.
+export const getScrollDuration = (
+  comment: Pick<FormattedCommentWithSize, "long" | "owner">,
+  config: BaseConfig,
+) =>
+  comment.owner
+    ? comment.long
+    : (comment.long + 100) / config.scrollSpeed - 100;
 
-const getMovableCommentActiveRange = (comment: IComment) => ({
-  start: comment.vpos + getMovableCommentBeforeVpos(comment),
-  end: comment.vpos + comment.long + 125,
+export const getScrollSpeed = (
+  comment: Pick<FormattedCommentWithSize, "long" | "width" | "owner">,
+  config: BaseConfig,
+) =>
+  ((config.commentDrawRange + comment.width * config.nakaCommentSpeedOffset) /
+    (comment.long + 100)) *
+  (comment.owner ? 1 : config.scrollSpeed);
+
+const getMovableCommentBeforeVpos = (comment: IComment, config: BaseConfig) =>
+  Math.round(
+    -288 /
+      ((1632 + comment.width) / (getScrollDuration(comment, config) + 125)),
+  ) - 100;
+
+const getMovableCommentActiveRange = (
+  comment: IComment,
+  config: BaseConfig,
+) => ({
+  start: comment.vpos + getMovableCommentBeforeVpos(comment, config),
+  end: comment.vpos + Math.ceil(getScrollDuration(comment, config) + 125),
 });
 
 const getMovableCommentCollisionRange = (
@@ -255,8 +283,9 @@ const getMovableCommentCollisionRange = (
 const forEachMovableCollisionBucket = (
   comment: IComment,
   callback: (bucket: number) => void,
+  config: BaseConfig,
 ) => {
-  const { start, end } = getMovableCommentActiveRange(comment);
+  const { start, end } = getMovableCommentActiveRange(comment, config);
   const firstBucket = Math.floor(start / MOVABLE_COLLISION_BUCKET_SIZE);
   const lastBucket = Math.floor((end - 1) / MOVABLE_COLLISION_BUCKET_SIZE);
   for (let bucket = firstBucket; bucket <= lastBucket; bucket++) {
@@ -267,23 +296,31 @@ const forEachMovableCollisionBucket = (
 const addMovableCollisionCommentToBuckets = (
   index: MovableCollisionIndex,
   comment: IComment,
+  config: BaseConfig,
 ) => {
-  forEachMovableCollisionBucket(comment, (bucket) => {
-    const comments = index.buckets.get(bucket);
-    if (comments) {
-      comments.push(comment);
-    } else {
-      index.buckets.set(bucket, [comment]);
-    }
-  });
+  forEachMovableCollisionBucket(
+    comment,
+    (bucket) => {
+      const comments = index.buckets.get(bucket);
+      if (comments) {
+        comments.push(comment);
+      } else {
+        index.buckets.set(bucket, [comment]);
+      }
+    },
+    config,
+  );
 };
 
 // Equal-duration comments use the sampled collision lines. Build the extra
 // trajectory index only when a different duration actually needs it.
-const flushPendingMovableCollisionComments = (index: MovableCollisionIndex) => {
+const flushPendingMovableCollisionComments = (
+  index: MovableCollisionIndex,
+  config: BaseConfig,
+) => {
   if (index.pending.length === 0) return;
   for (const comment of index.pending) {
-    addMovableCollisionCommentToBuckets(index, comment);
+    addMovableCollisionCommentToBuckets(index, comment, config);
   }
   index.pending = [];
 };
@@ -291,17 +328,18 @@ const flushPendingMovableCollisionComments = (index: MovableCollisionIndex) => {
 const registerMovableCollisionComment = (
   collision: Collision,
   comment: IComment,
+  config: BaseConfig,
 ) => {
   const index = getMovableCollisionIndex(collision);
   if (index.registeredComments.has(comment)) return;
   index.registeredComments.add(comment);
-  index.durations.add(comment.long);
+  index.durations.add(getScrollDuration(comment, config));
   if (index.durations.size === 1) {
     index.pending.push(comment);
     return;
   }
-  flushPendingMovableCollisionComments(index);
-  addMovableCollisionCommentToBuckets(index, comment);
+  flushPendingMovableCollisionComments(index, config);
+  addMovableCollisionCommentToBuckets(index, comment, config);
 };
 
 const doMovableTrajectoriesIntersect = (
@@ -311,13 +349,10 @@ const doMovableTrajectoriesIntersect = (
   candidate: IComment,
   config: BaseConfig,
 ) => {
-  const candidateSpeed =
-    (config.commentDrawRange +
-      candidate.width * config.nakaCommentSpeedOffset) /
-    (candidate.long + 100);
+  const candidateSpeed = getScrollSpeed(candidate, config);
   const candidateCollisionRange = getMovableCommentCollisionRange(
     candidate,
-    getMovableCommentActiveRange(candidate),
+    getMovableCommentActiveRange(candidate, config),
     config,
     candidateSpeed,
   );
@@ -353,14 +388,15 @@ const getAnalyticMovableCollisionCandidates = (
 ) => {
   const index = getMovableCollisionIndex(collision);
   if (index.durations.size === 0) return undefined;
-  if (index.durations.size === 1 && index.durations.has(comment.long)) {
+  if (
+    index.durations.size === 1 &&
+    index.durations.has(getScrollDuration(comment, config))
+  ) {
     return undefined;
   }
-  flushPendingMovableCollisionComments(index);
-  const commentRange = getMovableCommentActiveRange(comment);
-  const commentSpeed =
-    (config.commentDrawRange + comment.width * config.nakaCommentSpeedOffset) /
-    (comment.long + 100);
+  flushPendingMovableCollisionComments(index, config);
+  const commentRange = getMovableCommentActiveRange(comment, config);
+  const commentSpeed = getScrollSpeed(comment, config);
   const commentCollisionRange = getMovableCommentCollisionRange(
     comment,
     commentRange,
@@ -369,31 +405,36 @@ const getAnalyticMovableCollisionCandidates = (
   );
   const seen = new Set<IComment>();
   const candidates: IComment[] = [];
-  forEachMovableCollisionBucket(comment, (bucket) => {
-    const bucketComments = index.buckets.get(bucket);
-    if (!bucketComments) return;
-    for (const candidate of bucketComments) {
-      if (
-        seen.has(candidate) ||
-        candidate === comment ||
-        candidate.long === comment.long
-      ) {
-        continue;
+  forEachMovableCollisionBucket(
+    comment,
+    (bucket) => {
+      const bucketComments = index.buckets.get(bucket);
+      if (!bucketComments) return;
+      for (const candidate of bucketComments) {
+        if (
+          seen.has(candidate) ||
+          candidate === comment ||
+          getScrollDuration(candidate, config) ===
+            getScrollDuration(comment, config)
+        ) {
+          continue;
+        }
+        seen.add(candidate);
+        if (
+          doMovableTrajectoriesIntersect(
+            comment,
+            commentCollisionRange,
+            commentSpeed,
+            candidate,
+            config,
+          )
+        ) {
+          candidates.push(candidate);
+        }
       }
-      seen.add(candidate);
-      if (
-        doMovableTrajectoriesIntersect(
-          comment,
-          commentCollisionRange,
-          commentSpeed,
-          candidate,
-          config,
-        )
-      ) {
-        candidates.push(candidate);
-      }
-    }
-  });
+    },
+    config,
+  );
   return candidates;
 };
 
@@ -1315,23 +1356,21 @@ const processMovableComment = (
     return;
   }
   const commentWidth = comment.width;
-  const commentLong = comment.long;
+  const commentLong = getScrollDuration(comment, config);
   const commentVpos = comment.vpos;
-  const speed =
-    (config.commentDrawRange + commentWidth * config.nakaCommentSpeedOffset) /
-    (commentLong + 100);
+  const speed = getScrollSpeed(comment, config);
   const drawPadding = config.commentDrawPadding;
   const drawRange = config.commentDrawRange;
   const collisionPadding = config.collisionPadding;
   const collisionRight = config.collisionRange.right;
   const collisionLeft = config.collisionRange.left;
 
-  const beforeVpos = getMovableCommentBeforeVpos(comment);
+  const beforeVpos = getMovableCommentBeforeVpos(comment, config);
   const viewportFrames = getViewportFrames(viewportExpansion, speed);
   const posY = lazy
     ? -1
     : getMovablePosY(comment, collision, beforeVpos, config, speed);
-  const n = commentLong + 125;
+  const n = Math.ceil(commentLong + 125);
   if (!isTimelineProcessed(timeline, comment)) {
     for (let j = beforeVpos - viewportFrames; j < n + viewportFrames; j++) {
       const vpos = commentVpos + j;
@@ -1358,7 +1397,7 @@ const processMovableComment = (
     markTimelineProcessed(timeline, comment);
   }
   comment.posY = posY;
-  registerMovableCollisionComment(collision, comment);
+  registerMovableCollisionComment(collision, comment, config);
 };
 
 const getFixedPosY = (
@@ -1389,9 +1428,7 @@ const getMovablePosY = (
   collision: Collision,
   beforeVpos: number,
   config: BaseConfig,
-  speed: number = (config.commentDrawRange +
-    comment.width * config.nakaCommentSpeedOffset) /
-    (comment.long + 100),
+  speed: number = getScrollSpeed(comment, config),
 ) => {
   const canvasHeight = config.canvasHeight;
   const commentHeight = comment.height;
@@ -1399,13 +1436,13 @@ const getMovablePosY = (
     return (commentHeight - canvasHeight) / -2;
   }
   const commentWidth = comment.width;
-  const commentLong = comment.long;
+  const commentLong = getScrollDuration(comment, config);
   const commentVpos = comment.vpos;
   const drawPadding = config.commentDrawPadding;
   const drawRange = config.commentDrawRange;
   const collisionRight = config.collisionRange.right;
   const collisionLeft = config.collisionRange.left;
-  const n = commentLong + 125;
+  const n = Math.ceil(commentLong + 125);
   const analyticCandidates = getAnalyticMovableCollisionCandidates(
     comment,
     collision,
@@ -1528,9 +1565,7 @@ const getPosX = (
   if (comment.loc !== "naka") {
     return (config.canvasWidth - comment.width) / 2;
   }
-  const speed =
-    (config.commentDrawRange + comment.width * config.nakaCommentSpeedOffset) /
-    (comment.long + 100);
+  const speed = getScrollSpeed(comment, config);
   const vposLapsed = vpos - comment.vpos;
   const posX =
     config.commentDrawPadding +
@@ -1575,12 +1610,10 @@ export const extendMovableCommentTimeline = (
   touchedTimeline: Set<number>,
 ) => {
   if (nextExpansion <= previousExpansion || comment.loc !== "naka") return;
-  const speed =
-    (config.commentDrawRange + comment.width * config.nakaCommentSpeedOffset) /
-    (comment.long + 100);
+  const speed = getScrollSpeed(comment, config);
   if (!Number.isFinite(speed) || speed <= 0) return;
-  const before = getMovableCommentBeforeVpos(comment);
-  const end = comment.long + 125;
+  const before = getMovableCommentBeforeVpos(comment, config);
+  const end = Math.ceil(getScrollDuration(comment, config) + 125);
   const previousFrames = getViewportFrames(previousExpansion, speed);
   const nextFrames = getViewportFrames(nextExpansion, speed);
   for (let j = before - nextFrames; j < before - previousFrames; j++) {

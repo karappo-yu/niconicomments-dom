@@ -7,11 +7,16 @@ import type {
   IComment,
 } from "@/@types/";
 import { getConfig, getFontSizeAndScale, getStrokeColor } from "@/utils";
+import { getScrollSpeed } from "@/utils/comment";
 
 const POOL_MAX_SIZE = 512;
 
 const CSS = `
 @keyframes dm-scroll {
+  from { transform: translateX(calc(var(--dm-from) * var(--dm-unit))); }
+  to   { transform: translateX(calc(var(--dm-to) * var(--dm-unit))); }
+}
+@keyframes dm-scroll-alt {
   from { transform: translateX(calc(var(--dm-from) * var(--dm-unit))); }
   to   { transform: translateX(calc(var(--dm-to) * var(--dm-unit))); }
 }
@@ -52,6 +57,7 @@ class CSSRenderer {
   private activeSeenGeneration: Map<number, number> = new Map();
   private activeElementReverse: Map<number, boolean> = new Map();
   private visibilityGeneration = 0;
+  private motionDirty = false;
   private styleElement: HTMLStyleElement;
   private paused = false;
   private lastUpdateVpos = -1;
@@ -155,6 +161,8 @@ class CSSRenderer {
     }
 
     const generation = ++this.visibilityGeneration;
+    const motionDirty = this.motionDirty;
+    this.motionDirty = false;
     const isSeek =
       this.lastUpdateVpos >= 0 && Math.abs(vpos - this.lastUpdateVpos) > 150;
     let drawnCount = 0;
@@ -198,6 +206,13 @@ class CSSRenderer {
       this.activeSeenGeneration.set(comment.index, generation);
 
       const element = this.activeElements.get(comment.index);
+      if (element && motionDirty) {
+        const posY =
+          comment.loc === "shita"
+            ? this.config.canvasHeight - comment.posY - comment.height
+            : comment.posY;
+        element.style.top = `calc(${posY} * var(--dm-unit))`;
+      }
 
       if (!element) {
         if (!this.createCommentElement(comment, vpos, isReverse)) {
@@ -208,7 +223,9 @@ class CSSRenderer {
         if (newEl) newElements.push(newEl!);
       } else if (
         comment.loc === "naka" &&
-        (isSeek || isReverse !== this.activeElementReverse.get(comment.index))
+        (isSeek ||
+          motionDirty ||
+          isReverse !== this.activeElementReverse.get(comment.index))
       ) {
         this.reanimateScroll(comment, vpos, isReverse);
       } else {
@@ -234,7 +251,7 @@ class CSSRenderer {
 
     for (const [index, element] of this.activeElements) {
       if (this.activeSeenGeneration.get(index) !== generation) {
-        if (!excludedByLimit.has(index)) {
+        if (!motionDirty && !excludedByLimit.has(index)) {
           // CSS animation の再生状態を確認。running/paused ならまだ画面上。
           // getAnimations() は CSS @keyframes アニメーションも返す。
           // dm-pop(combo 演出)は装飾のみで、生存判定から除外する。
@@ -381,11 +398,6 @@ class CSSRenderer {
     const element = this.activeElements.get(comment.index);
     if (!element) return;
 
-    // CSS animation をクリア → 再設定
-    element.style.animation = "";
-    // 強制リフロー（次のフレームを待たずに animation をリセット）
-    void element.offsetWidth;
-
     if (!this.setupScrollAnimation(element, comment, vpos, isReverse)) {
       this.recycleElement(element);
       this.activeElements.delete(comment.index);
@@ -414,6 +426,11 @@ class CSSRenderer {
     }
   }
 
+  /** The next frame refreshes each surviving node once after relayout. */
+  invalidateMotion() {
+    this.motionDirty = true;
+  }
+
   private setupScrollAnimation(
     element: HTMLDivElement,
     comment: IComment,
@@ -431,10 +448,7 @@ class CSSRenderer {
     const layerScale = rawLayerScale;
     const fontSizePx = renderFontSize * commentScale * fontScale * layerScale;
 
-    const speed =
-      (this.config.commentDrawRange +
-        c.width * this.config.nakaCommentSpeedOffset) /
-      (comment.long + 100);
+    const speed = getScrollSpeed(comment, this.config);
 
     const vposLapsed = vpos - comment.vpos;
     const normalXPx =
@@ -466,7 +480,13 @@ class CSSRenderer {
     // CSS @keyframes 経由: JS の Animation オブジェクトを作らず CSS エンジンに任せる
     element.style.setProperty("--dm-from", String(fromXPx));
     element.style.setProperty("--dm-to", String(endXPx));
-    element.style.animation = `dm-scroll ${remainingSec}s linear forwards`;
+    // Alternating equivalent names restarts CSS animation at style resolution,
+    // without an offsetWidth read/layout flush for every comment.
+    const name =
+      element.style.animationName === "dm-scroll"
+        ? "dm-scroll-alt"
+        : "dm-scroll";
+    element.style.animation = `${name} ${remainingSec}s linear forwards`;
     return true;
   }
 

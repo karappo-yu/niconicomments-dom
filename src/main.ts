@@ -168,6 +168,7 @@ class NiconiComments {
   private lastCursor?: Position;
   private lastFrameBanActive: boolean;
   private frameDirty: boolean;
+  private pendingMotionLayout = false;
   private lastRendererWidth: number;
   private lastRendererHeight: number;
   private rendererScale: number;
@@ -188,8 +189,8 @@ class NiconiComments {
   private destroyed = false;
   private readonly renderer: IRenderer;
   private cssRenderer: CSSRenderer | null = null;
-  private readonly collision: Collision;
-  private readonly timeline: Timeline;
+  private collision: Collision;
+  private timeline: Timeline;
   private readonly ctx: CommentInstanceContext;
   private readonly eventHandler: EventHandler;
   private plugins: IPluginList = [];
@@ -425,7 +426,11 @@ class NiconiComments {
     let rawData = _rawData;
     const preRenderingStart = performance.now();
     if (this.ctx.options.keepCA) {
-      rawData = changeCALayer(rawData, this.ctx.config);
+      rawData = changeCALayer(
+        rawData,
+        this.ctx.config,
+        this.ctx.options.dedupeCA,
+      );
     }
     let instances = rawData.reduce<IComment[]>((pv, val, index) => {
       pv.push(createCommentInstance(val, this.renderer, index, this.ctx));
@@ -613,6 +618,7 @@ class NiconiComments {
         this.ctx.config.canvasWidth,
         Math.max(0, this.ctx.viewport?.offsetX ?? 0),
         this.ctx.config.commentDrawRange,
+        this.ctx.config.scrollSpeed,
       );
     let endIndex = startIndex - 1;
     for (let i = startIndex; i < scanEndIndex; i++) {
@@ -840,6 +846,7 @@ class NiconiComments {
     };
 
     const vposInt = Math.floor(vpos);
+    if (this.pendingMotionLayout) this.reflowMotion(vposInt);
     const drawCanvasStart = performance.now();
     const requiresVideoRedraw = rendererHasVideoSurface(this.renderer);
     const rendererNeedsRedraw = this.renderer.needsRedraw?.() ?? false;
@@ -1331,6 +1338,40 @@ class NiconiComments {
     if (this.cssRenderer) {
       this.cssRenderer.resume();
     }
+  }
+
+  /** Queue motion relayout for the next draw; preserve owners, parsed data and DOM. */
+  public setScrollSpeed(speed: number): boolean {
+    if (
+      this.destroyed ||
+      !Number.isFinite(speed) ||
+      speed < 0.25 ||
+      speed > 4 ||
+      speed === this.ctx.config.scrollSpeed
+    )
+      return false;
+    this.ctx.config.scrollSpeed = speed;
+    this.pendingMotionLayout = true;
+    this.frameDirty = true;
+    return true;
+  }
+
+  private reflowMotion(vpos: number) {
+    this.pendingMotionLayout = false;
+    this.collision = { ue: {}, shita: {}, left: {}, right: {} };
+    this.timeline = {};
+    this.processedCommentIndex = -1;
+    this.nextUnprocessedCommentIndex = 0;
+    for (const comment of this.comments) comment.posY = -1;
+    if (!this.ctx.options.lazy || !this.lazyCommentOrderSortedByVpos) {
+      this.getCommentPos(this.comments, this.comments.length);
+      this.sortTimelineComment();
+    } else {
+      this.resolveLazyCommentWindow(vpos);
+    }
+    this._cachedSplit = null;
+    this.frameDirty = true;
+    this.cssRenderer?.invalidateMotion();
   }
 
   public setPlaybackSpeed(speed: number) {

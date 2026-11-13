@@ -22,6 +22,9 @@ export const ZFormattedComment = object({
   user_id: optional(ZCommentUserId, 0),
   layer: optional(ZCommentLayer, -1),
   is_my_post: optional(boolean(), false),
+  // Optional projection metadata: content already includes the measured suffix.
+  comboSuffix: optional(string()),
+  comboSuffixColor: optional(string()),
 });
 export type FormattedComment = InferOutput<typeof ZFormattedComment>;
 /** Public input accepts omitted fields whose defaults are supplied by parsing. */
