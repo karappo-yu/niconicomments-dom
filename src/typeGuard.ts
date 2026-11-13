@@ -416,6 +416,7 @@ const isValidConfig = (item: unknown): boolean => {
     contextStrokeColor: isColorCode,
     contextStrokeInversionColor: isColorCode,
     contextStrokeOpacity: (i) => isFiniteNumberInRange(i, { max: 1 }),
+    cssTextShadowBlur: (i) => isFiniteNumberInRange(i, { max: 10 }),
     contextFillLiveOpacity: (i) => isFiniteNumberInRange(i, { max: 1 }),
     compatSpacer: isValidCompatSpacer,
     fonts: isValidFonts,

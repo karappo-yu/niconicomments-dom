@@ -128,6 +128,41 @@ describe("init option and config bounds", () => {
     ).toThrow(InvalidOptionError);
   });
 
+  test.each([
+    -1,
+    10.5,
+    NaN,
+    Infinity,
+    "2",
+    null,
+  ])("rejects invalid CSS shadow blur %s", (blur) => {
+    expect(
+      () =>
+        new NiconiComments(new FakeRenderer(), [], {
+          format: "formatted",
+          mode: "css",
+          config: { cssTextShadowBlur: blur as number },
+        }),
+    ).toThrow(InvalidOptionError);
+  });
+
+  test.each([
+    0, 0.5, 10,
+  ])("accepts CSS shadow blur %s without affecting Canvas drawing", (blur) => {
+    const renderer = new FakeRenderer();
+    const nc = new NiconiComments(renderer, [createComment(1)], {
+      format: "formatted",
+      mode: "default",
+      config: { cssTextShadowBlur: blur },
+    });
+    try {
+      nc.drawCanvas(100, true);
+      expect(renderer.drawImageCalls).toBeGreaterThan(0);
+    } finally {
+      nc.destroy();
+    }
+  });
+
   test("rejects config values that can break allocation or loop bounds", () => {
     const fontSize = defaultConfig.fontSize as MultiFontSizeConfig;
     expect(

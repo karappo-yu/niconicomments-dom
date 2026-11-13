@@ -48,6 +48,8 @@ const initConfig = () => {
      * 枠線の透明度
      */
     contextStrokeOpacity: 0.4,
+    // CSS text shadows follow the stroke color and are opt-in.
+    cssTextShadowBlur: 0,
     /**
      * _liveコマンドの透明度
      */
