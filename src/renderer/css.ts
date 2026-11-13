@@ -44,6 +44,7 @@ const CSS = `
   white-space: pre;
   pointer-events: none;
   paint-order: stroke fill;
+  stroke-linejoin: round;
 }
 `;
 

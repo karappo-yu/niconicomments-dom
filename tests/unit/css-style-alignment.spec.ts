@@ -288,7 +288,7 @@ describe("CSSRenderer style alignment with Canvas", () => {
     vi.unstubAllGlobals();
   });
 
-  test("omits dead stroke-linejoin and textShadow blur on stroked comments", () => {
+  test("preserves round stroke joins without textShadow blur on stroked comments", () => {
     const renderer = new CSSRenderer(
       canvas as unknown as HTMLCanvasElement,
       defaultConfig,
@@ -296,7 +296,7 @@ describe("CSSRenderer style alignment with Canvas", () => {
     );
     try {
       const styleEl = head.children[0] as FakeElement;
-      expect(styleEl.textContent).not.toContain("stroke-linejoin");
+      expect(styleEl.textContent).toContain("stroke-linejoin: round;");
 
       const html5 = createHtml5Comment({ index: 0 });
       const flash: IComment = {
