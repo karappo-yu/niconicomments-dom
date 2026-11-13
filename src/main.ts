@@ -426,7 +426,11 @@ class NiconiComments {
     let rawData = _rawData;
     const preRenderingStart = performance.now();
     if (this.ctx.options.keepCA) {
-      rawData = changeCALayer(rawData, this.ctx.config);
+      rawData = changeCALayer(
+        rawData,
+        this.ctx.config,
+        this.ctx.options.dedupeCA,
+      );
     }
     let instances = rawData.reduce<IComment[]>((pv, val, index) => {
       pv.push(createCommentInstance(val, this.renderer, index, this.ctx));

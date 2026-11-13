@@ -22,6 +22,7 @@ const createDefaultOptions = (): BaseOptions => ({
   format: "default",
   formatted: false,
   keepCA: false,
+  dedupeCA: true,
   mode: "default",
   scale: 1,
   showCollision: false,

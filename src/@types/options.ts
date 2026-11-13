@@ -43,6 +43,8 @@ export type BaseOptions = {
   format: InputFormatType;
   formatted: boolean;
   keepCA: boolean;
+  /** Remove repeated CA during keepCA processing. Disable for pre-projected sources. */
+  dedupeCA: boolean;
   mode: ModeType;
   scale: number;
   showCollision: boolean;

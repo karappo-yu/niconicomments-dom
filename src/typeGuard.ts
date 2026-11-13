@@ -628,6 +628,7 @@ const typeGuard = {
         debug: isBoolean,
         enableLegacyPiP: isBoolean,
         keepCA: isBoolean,
+        dedupeCA: isBoolean,
         lazy: isBoolean,
         mode: isMode,
         scale: isValidOptionScale,
