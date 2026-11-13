@@ -359,10 +359,13 @@ class CSSRenderer {
         1,
     );
     element.style.webkitTextStroke = `calc(${strokeWidthPx} * var(--dm-unit)) ${strokeColor}`;
+    // WebKit can suppress fill shadows with stroke-first painting and a zero
+    // stroke. Shadow-only text must use normal painting to blur the glyph fill.
+    element.style.paintOrder = strokeWidthPx > 0 ? "stroke fill" : "normal";
     // Flash paints on its own transformed layer; avoid inheriting a shadow
     // already scaled for the HTML5 outer element.
     element.style.textShadow =
-      !comment.flash && strokeWidthPx > 0 && this.config.cssTextShadowBlur > 0
+      !comment.flash && this.config.cssTextShadowBlur > 0
         ? `0 0 calc(${this.config.cssTextShadowBlur * drawScale * fontScale * layerScale} * var(--dm-unit)) ${strokeColor}`
         : "none";
 
@@ -604,8 +607,11 @@ class CSSRenderer {
     // resolving at the final CSS size would change measured line widths.
     layer.style.fontSize = `${c.fontSize}px`;
     layer.style.webkitTextStroke = `${getConfig(this.config.contextLineWidth, true)}px ${getStrokeColor(c, this.config)}`;
+    layer.style.paintOrder =
+      getConfig(this.config.contextLineWidth, true) > 0
+        ? "stroke fill"
+        : "normal";
     layer.style.textShadow =
-      getConfig(this.config.contextLineWidth, true) > 0 &&
       this.config.cssTextShadowBlur > 0
         ? `0 0 ${this.config.cssTextShadowBlur}px ${getStrokeColor(c, this.config)}`
         : "none";

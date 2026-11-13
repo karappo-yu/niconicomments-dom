@@ -53,7 +53,7 @@ export type BaseConfig = {
   contextStrokeColor: string;
   contextStrokeInversionColor: string;
   contextStrokeOpacity: number;
-  /** CSS-only shadow blur, 0–10 px before comment/display scaling; 0 disables it. */
+  /** CSS-only glyph shadow blur, independent of stroke width; 0–10 px before scaling, 0 disables it. */
   cssTextShadowBlur: number;
   flashChar: FlashCharList;
   flashMode: FlashMode;

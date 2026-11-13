@@ -313,6 +313,7 @@ describe("CSSRenderer style alignment with Canvas", () => {
       expect(container.children).toHaveLength(2);
       for (const el of container.children as FakeElement[]) {
         expect(el.style.webkitTextStroke).toContain("var(--dm-unit)");
+        expect(el.style.paintOrder).toBe("stroke fill");
         expect(el.style.textShadow).toBe("none");
       }
     } finally {
@@ -369,12 +370,14 @@ describe("CSSRenderer style alignment with Canvas", () => {
     }
   });
 
-  test("does not draw a shadow when that comment's stroke is disabled", () => {
+  test.each([
+    0, 1.5,
+  ])("renders a glyph shadow independently of zero stroke width (blur=%s)", (blur) => {
     const renderer = new CSSRenderer(
       canvas as unknown as HTMLCanvasElement,
       {
         ...defaultConfig,
-        cssTextShadowBlur: 5,
+        cssTextShadowBlur: blur,
         contextLineWidth: { html5: 0, flash: 0 },
       },
       { ...defaultOptions, mode: "css" },
@@ -394,9 +397,16 @@ describe("CSSRenderer style alignment with Canvas", () => {
           el.attributes.has("data-dm-css-container"),
       ) as FakeElement;
       for (const el of container.children as FakeElement[]) {
-        expect(el.style.textShadow).toBe("none");
-        if (el.children.length)
-          expect((el.children[0] as FakeElement).style.textShadow).toBe("none");
+        expect(el.style.paintOrder).toBe("normal");
+        expect(el.style.webkitTextStroke).toContain("calc(0 * var(--dm-unit))");
+        const glyph = el.children.length ? (el.children[0] as FakeElement) : el;
+        expect(glyph.style.paintOrder).toBe("normal");
+        if (blur === 0) expect(glyph.style.textShadow).toBe("none");
+        else {
+          expect(glyph.style.textShadow).toMatch(/^0 0 /);
+          expect(glyph.style.textShadow).toContain("rgba(0,0,0,0.4)");
+        }
+        if (el.children.length) expect(el.style.textShadow).toBe("none");
       }
     } finally {
       renderer.destroy();
