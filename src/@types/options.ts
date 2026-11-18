@@ -52,6 +52,8 @@ export type BaseOptions = {
   showFPS: boolean;
   useLegacy: boolean;
   video: HTMLVideoElement | undefined;
+  /** Initial logical output size for CSS mode, independent of canvas pixels. */
+  viewportSize?: { width: number; height: number };
   lazy: boolean;
 };
 export type Options = Partial<BaseOptions>;

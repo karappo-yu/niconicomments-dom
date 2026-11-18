@@ -23,7 +23,7 @@ import { initConfig } from "@/definition/initConfig";
 import { InvalidOptionError } from "@/errors/";
 import { EventHandler } from "@/eventHandler";
 import convert2formattedComment from "@/inputParser";
-import { createRenderer } from "@/renderer";
+import { CSSMeasurementRenderer, createRenderer } from "@/renderer";
 import { clampCanvasSize } from "@/renderer/canvas";
 import { CSSRenderer } from "@/renderer/css";
 import typeGuard from "@/typeGuard";
@@ -243,7 +243,15 @@ class NiconiComments {
 
     let renderer = _renderer;
     if (renderer instanceof HTMLCanvasElement) {
-      renderer = createRenderer(renderer, options.video);
+      renderer =
+        options.mode === "css"
+          ? new CSSMeasurementRenderer(
+              options.viewportSize ?? {
+                width: renderer.width,
+                height: renderer.height,
+              },
+            )
+          : createRenderer(renderer, options.video);
     } else if (options.video) {
       console.warn(
         "options.video is ignored because renderer is not HTMLCanvasElement",
@@ -265,7 +273,7 @@ class NiconiComments {
     this.timelineExpansion = Math.max(0, this.ctx.viewport?.offsetX ?? 0);
 
     if (options.mode === "css" && _renderer instanceof HTMLCanvasElement) {
-      this.cssRenderer = new CSSRenderer(this.renderer.canvas, config, options);
+      this.cssRenderer = new CSSRenderer(_renderer, config, options);
       this.cssRenderer.setViewport(
         this.ctx.viewport?.width ?? config.canvasWidth,
         this.ctx.viewport?.offsetX ?? 0,

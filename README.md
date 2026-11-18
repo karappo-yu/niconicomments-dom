@@ -23,6 +23,7 @@ IINA の WKWebView 環境に特化したため、汎用ライブラリとして�
 | **DOM ノードのプール** | 最大 512 個の DOM ノードを再利用し、コメントが集中する場面でも生成・破棄のコストを抑えます |
 | **`mode: "css"` の追加** | `ModeType` と typeGuard に `"css"` を追加 |
 | **CSS の Auto 互換** | Canvas Auto と同じ投稿日時・コマンドによる Flash / HTML5 判定を使用。`gothic` / `mincho` / `defont` と `nico:flash` を尊重し、Flash コメントのフォント分割・互換空白・行間・縮小・字間を DOM に反映 |
+| **CSS モードの計測用キャンバス** | WebGL を生成せず、1×1 の 2D キャンバスで文字を計測。`viewportSize: {width, height}` で初期の論理表示サイズを指定でき、`resize()` はピクセルバッファを拡大せず論理サイズを更新します。省略時は元のキャンバスの属性からサイズを取得 |
 | **`_resolveCommentPositions` の切り出し** | CSS モードが `drawCanvas` から直接位置を解決できるよう、main.ts の位置解決ロジックを分離 |
 | **CSS モード用の公開 API** | `pauseCSS` / `resumeCSS` / `getVisibleComments`(一時停止・再開・表示中のコメント一覧の取得) |
 

@@ -44,7 +44,7 @@ export const clampCanvasSize = (width: number, height: number) => {
  * @param video レンダリングするVideo(任意)
  */
 class CanvasRenderer implements IRenderer {
-  public readonly rendererName = "CanvasRenderer";
+  public readonly rendererName: string = "CanvasRenderer";
   public readonly canvas: HTMLCanvasElement;
   public readonly video?: HTMLVideoElement;
   private readonly context: CanvasRenderingContext2D;
