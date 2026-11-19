@@ -6,7 +6,12 @@ import type {
   FrameActiveState,
   IComment,
 } from "@/@types/";
-import { getCharSize, getConfig, getFontSizeAndScale, getStrokeColor } from "@/utils";
+import {
+  getCharSize,
+  getConfig,
+  getFontSizeAndScale,
+  getStrokeColor,
+} from "@/utils";
 import { getScrollSpeed } from "@/utils/comment";
 
 const POOL_MAX_SIZE = 512;
@@ -220,7 +225,7 @@ class CSSRenderer {
           continue;
         }
         const newEl = this.activeElements.get(comment.index);
-        if (newEl) newElements.push(newEl!);
+        if (newEl) newElements.push(newEl);
       } else if (
         comment.loc === "naka" &&
         (isSeek ||
@@ -243,8 +248,8 @@ class CSSRenderer {
 
     if (newElements.length > 0) {
       const fragment = document.createDocumentFragment();
-      for (let i = 0, n = newElements.length; i < n; i++) {
-        fragment.appendChild(newElements[i]!);
+      for (const newElement of newElements) {
+        fragment.appendChild(newElement);
       }
       this.container.appendChild(fragment);
     }
