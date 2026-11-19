@@ -30,6 +30,7 @@ const createDefaultOptions = (): BaseOptions => ({
   showFPS: false,
   useLegacy: false,
   video: undefined,
+  viewportSize: undefined,
   lazy: false,
 });
 

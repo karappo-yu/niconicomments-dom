@@ -636,6 +636,23 @@ const typeGuard = {
         config: isValidConfig,
         format: (i) => is(ZInputFormatType, i),
         video: (i: unknown) => is(optional(instance(HTMLVideoElement)), i),
+        viewportSize: (i: unknown) => {
+          if (typeof i !== "object" || !i || Array.isArray(i)) return false;
+          const { width, height } = i as Record<string, unknown>;
+          return (
+            isFiniteNumberInRange(width, {
+              min: 1,
+              max: MAX_CANVAS_DIMENSION,
+              integer: true,
+            }) &&
+            isFiniteNumberInRange(height, {
+              min: 1,
+              max: MAX_CANVAS_DIMENSION,
+              integer: true,
+            }) &&
+            Number(width) * Number(height) <= MAX_CANVAS_AREA
+          );
+        },
       };
       for (const key of Object.keys(keys)) {
         if (
