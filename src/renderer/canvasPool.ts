@@ -1,7 +1,7 @@
 /**
  * HTMLCanvasElement のオブジェクトプール
  * コメント画像生成時の document.createElement("canvas") コストを削減する
- * maxSize を超えたキャンバスは返却せずGCに委ねる（メモリ使用量の上限を保証）
+ * 返却時に全キャンバスのピクセルを破棄し、maxSize までオブジェクトを再利用する
  */
 class CanvasPool {
   private readonly maxSize: number;
@@ -23,9 +23,9 @@ class CanvasPool {
 
   release(canvas: HTMLCanvasElement): void {
     if (this.pooledCanvases.has(canvas)) return;
-    if (this.pool.length >= this.maxSize) return;
     canvas.width = 0;
     canvas.height = 0;
+    if (this.pool.length >= this.maxSize) return;
     this.pooledCanvases.add(canvas);
     this.pool.push(canvas);
   }

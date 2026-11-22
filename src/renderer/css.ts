@@ -61,6 +61,10 @@ class CSSRenderer {
   private activeElements: Map<number, HTMLDivElement> = new Map();
   private activeSeenGeneration: Map<number, number> = new Map();
   private activeElementReverse: Map<number, boolean> = new Map();
+  private readonly exposedAnimations = new Map<
+    HTMLDivElement,
+    Set<Animation>
+  >();
   private visibilityGeneration = 0;
   private motionDirty = false;
   private styleElement: HTMLStyleElement;
@@ -260,7 +264,7 @@ class CSSRenderer {
           // CSS animation の再生状態を確認。running/paused ならまだ画面上。
           // getAnimations() は CSS @keyframes アニメーションも返す。
           // dm-pop(combo 演出)は装飾のみで、生存判定から除外する。
-          const anims = element.getAnimations();
+          const anims = this.getElementAnimations(element);
           let stillPlaying = false;
           for (let i = 0, n = anims.length; i < n; i++) {
             const anim = anims[i];
@@ -505,6 +509,8 @@ class CSSRenderer {
       endXPx = toXPx;
     }
 
+    this.retireElementAnimations(element);
+
     // CSS @keyframes 経由: JS の Animation オブジェクトを作らず CSS エンジンに任せる
     element.style.setProperty("--dm-from", String(fromXPx));
     element.style.setProperty("--dm-to", String(endXPx));
@@ -722,6 +728,7 @@ class CSSRenderer {
           (comment.fixedComboZIndex ?? comment.index) +
           1,
       );
+      this.retireElementAnimations(element);
       // pop: アニメーションを再トリガー(クリア → 強制リフロー → 再設定)
       element.style.animation = "";
       void element.offsetWidth;
@@ -792,13 +799,48 @@ class CSSRenderer {
   }
 
   private recycleElement(element: HTMLDivElement) {
-    // CSS @keyframes 方式: animation プロパティをクリアするだけで終了
+    this.retireElementAnimations(element);
     element.style.animation = "";
     element.remove();
     element.style.cssText = "";
     element.textContent = "";
+    delete (element as HTMLDivElement & { __dmComment?: IComment }).__dmComment;
     if (this.pool.length < POOL_MAX_SIZE) {
       this.pool.push(element);
+    }
+  }
+
+  private getElementAnimations(element: HTMLDivElement): Animation[] {
+    const animations = element.getAnimations();
+    if (animations.length > 0) {
+      let exposed = this.exposedAnimations.get(element);
+      if (!exposed) {
+        exposed = new Set();
+        this.exposedAnimations.set(element, exposed);
+      }
+      for (const animation of animations) exposed.add(animation);
+    }
+    return animations;
+  }
+
+  private retireElementAnimations(element: HTMLDivElement) {
+    const animations = this.exposedAnimations.get(element);
+    if (!animations) return;
+    this.exposedAnimations.delete(element);
+    // WebKit bug 318856 keeps canceled CSSAnimation wrappers alive while
+    // their timeline is non-null. Only inspect animations where the lifetime
+    // check already exposed wrappers, avoiding new wrappers on every clear.
+    for (const animation of animations) {
+      try {
+        animation.cancel();
+      } catch {
+        // One unsupported operation must not prevent timeline detachment.
+      }
+      try {
+        animation.timeline = null;
+      } catch {
+        // Older animation APIs may not allow changing the timeline.
+      }
     }
   }
 
