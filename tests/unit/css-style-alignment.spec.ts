@@ -58,6 +58,8 @@ class FakeElement {
     remove: (_name: string) => {},
   };
   private _textContent = "";
+  animations: Animation[] = [];
+  animationReads = 0;
 
   constructor(tagName: string) {
     this.tagName = tagName;
@@ -133,7 +135,8 @@ class FakeElement {
   }
 
   getAnimations() {
-    return [];
+    this.animationReads++;
+    return this.animations;
   }
 }
 
@@ -287,6 +290,187 @@ describe("CSSRenderer style alignment with Canvas", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  const scrollingFixture = () => {
+    const renderer = new CSSRenderer(
+      canvas as unknown as HTMLCanvasElement,
+      defaultConfig,
+      { ...defaultOptions, mode: "css" },
+    );
+    const comment = createHtml5Comment({ loc: "naka" });
+    renderer.updateComments([comment], 100, activeState);
+    const container = host.children.find(
+      (node) =>
+        node instanceof FakeElement &&
+        node.attributes.has("data-dm-css-container"),
+    ) as FakeElement;
+    const element = container.children[0] as FakeElement;
+    return { renderer, comment, element };
+  };
+
+  const animationFixture = (
+    element: FakeElement,
+    playState: AnimationPlayState = "running",
+    failures: { cancel?: boolean; timeline?: boolean } = {},
+  ) => {
+    const events: string[] = [];
+    const timeline = {};
+    let currentTimeline: object | null = timeline;
+    const cancel = vi.fn(() => {
+      expect(element.style.animation).not.toBe("");
+      events.push("cancel");
+      if (failures.cancel) throw new Error("cancel failed");
+    });
+    const detach = vi.fn((value: AnimationTimeline | null) => {
+      expect(element.style.animation).not.toBe("");
+      events.push("timeline");
+      if (failures.timeline) throw new Error("timeline failed");
+      currentTimeline = value;
+    });
+    const animation = {
+      animationName: "dm-scroll",
+      playState,
+      cancel,
+      get timeline() {
+        return currentTimeline;
+      },
+      set timeline(value: AnimationTimeline | null) {
+        detach(value);
+      },
+    } as unknown as Animation;
+    return { animation, cancel, detach, events, timeline };
+  };
+
+  test("retires exposed finished animations before clearing styles and pooling nodes", () => {
+    const { renderer, element } = scrollingFixture();
+    const { animation, cancel, detach, events } = animationFixture(
+      element,
+      "finished",
+    );
+    element.animations = [animation];
+    try {
+      renderer.updateComments([], 101, activeState);
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(detach).toHaveBeenCalledExactlyOnceWith(null);
+      expect(events).toEqual(["cancel", "timeline"]);
+      expect(element.parentElement).toBeNull();
+      expect(element.style.animation).toBe("");
+      expect(
+        (element as FakeElement & { __dmComment?: IComment }).__dmComment,
+      ).toBeUndefined();
+      expect(renderer.getVisibleCommentIndices()).toEqual([]);
+      renderer.clear();
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally {
+      renderer.destroy();
+    }
+  });
+
+  test("clear does not create animation wrappers just to retire unobserved CSS animations", () => {
+    const { renderer, element, comment } = scrollingFixture();
+    try {
+      expect(
+        (element as FakeElement & { __dmComment?: IComment }).__dmComment,
+      ).toBe(comment);
+      renderer.clear();
+      expect(element.animationReads).toBe(0);
+      expect(
+        (element as FakeElement & { __dmComment?: IComment }).__dmComment,
+      ).toBeUndefined();
+    } finally {
+      renderer.destroy();
+    }
+  });
+
+  test.each([
+    "running",
+    "paused",
+  ] as const)("preserves %s scroll animations outside the engine window until cleanup", (playState) => {
+    const { renderer, element } = scrollingFixture();
+    const { animation, cancel, detach, timeline } = animationFixture(
+      element,
+      playState,
+    );
+    element.animations = [animation];
+    try {
+      renderer.updateComments([], 101, activeState);
+      renderer.updateComments([], 102, activeState);
+      expect(renderer.getVisibleCommentIndices()).toEqual([0]);
+      expect(cancel).not.toHaveBeenCalled();
+      expect(animation.timeline).toBe(timeline);
+      // Canceled animations may stop appearing in getAnimations() while
+      // their already-created JS wrappers still retain the native timeline.
+      element.animations = [];
+      renderer.destroy();
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(detach).toHaveBeenCalledExactlyOnceWith(null);
+      expect(element.animationReads).toBe(2);
+    } finally {
+      renderer.destroy();
+    }
+  });
+
+  test.each([
+    "playback speed",
+    "seek",
+    "reverse",
+    "motion",
+  ] as const)("detaches exposed animations before replacing scroll motion for %s", (reason) => {
+    const { renderer, comment, element } = scrollingFixture();
+    const first = animationFixture(element);
+    element.animations = [first.animation];
+    try {
+      renderer.updateComments([], 101, activeState);
+      if (reason === "playback speed") renderer.setPlaybackSpeed(2);
+      else if (reason === "seek") {
+        renderer.updateComments([comment], 262, activeState);
+      } else if (reason === "reverse") {
+        renderer.updateComments([comment], 102, {
+          ...activeState,
+          reverseActiveViewer: true,
+        });
+      } else {
+        comment.posY += 20;
+        renderer.invalidateMotion();
+        renderer.updateComments([comment], 102, activeState);
+      }
+      expect(first.cancel).toHaveBeenCalledOnce();
+      expect(first.detach).toHaveBeenCalledExactlyOnceWith(null);
+      expect(renderer.getVisibleCommentIndices()).toEqual([0]);
+      expect(element.parentElement).not.toBeNull();
+      expect(element.textContent).toBe(comment.content);
+      // A replacement is a new CSS animation; both generations must be
+      // retired independently, without revisiting the old wrapper.
+      const second = animationFixture(element);
+      element.animations = [second.animation];
+      renderer.updateComments([], 263, activeState);
+      renderer.clear();
+      expect(first.cancel).toHaveBeenCalledOnce();
+      expect(second.cancel).toHaveBeenCalledOnce();
+      expect(second.detach).toHaveBeenCalledExactlyOnceWith(null);
+    } finally {
+      renderer.destroy();
+    }
+  });
+
+  test("animation cleanup independently attempts cancellation and timeline detachment", () => {
+    const { renderer, element } = scrollingFixture();
+    const first = animationFixture(element, "finished", { cancel: true });
+    const second = animationFixture(element, "finished", { timeline: true });
+    const third = animationFixture(element, "finished");
+    element.animations = [first.animation, second.animation, third.animation];
+    try {
+      expect(() => renderer.updateComments([], 101, activeState)).not.toThrow();
+      for (const item of [first, second, third]) {
+        expect(item.cancel).toHaveBeenCalledOnce();
+        expect(item.detach).toHaveBeenCalledExactlyOnceWith(null);
+      }
+      expect(element.parentElement).toBeNull();
+      expect(renderer.getVisibleCommentIndices()).toEqual([]);
+    } finally {
+      renderer.destroy();
+    }
   });
 
   test("preserves round stroke joins without textShadow blur on stroked comments", () => {
