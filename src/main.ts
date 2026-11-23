@@ -869,6 +869,7 @@ class NiconiComments {
       requiresVideoRedraw ||
       rendererNeedsRedraw ||
       this.frameDirty ||
+      (this.cssRenderer?.needsContinuousDraw() ?? false) ||
       this.plugins.length > 0 ||
       this.showCollision ||
       this.showFPS ||
@@ -1386,6 +1387,10 @@ class NiconiComments {
     if (this.cssRenderer) {
       this.cssRenderer.setPlaybackSpeed(speed);
     }
+  }
+
+  public needsContinuousCSSDraw(): boolean {
+    return this.cssRenderer?.needsContinuousDraw() ?? false;
   }
 
   public getVisibleComments(): Record<string, unknown>[] {

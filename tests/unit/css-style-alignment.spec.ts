@@ -452,8 +452,8 @@ describe("CSSRenderer style alignment with Canvas", () => {
     }
   });
 
-  test("speed changes keep the same animation and retire newly exposed wrappers on clear", () => {
-    const { renderer, element } = scrollingFixture();
+  test("speed changes hand off on draw and keep frame motion until exit without more animation reads", () => {
+    const { renderer, comment, element } = scrollingFixture();
     const first = animationFixture(element);
     const updatePlaybackRate = vi.fn();
     Object.assign(first.animation, { updatePlaybackRate });
@@ -461,19 +461,56 @@ describe("CSSRenderer style alignment with Canvas", () => {
     const originalStyle = element.style.animation;
     try {
       renderer.setPlaybackSpeed(2);
-      renderer.setPlaybackSpeed(1);
-      expect(updatePlaybackRate.mock.calls).toEqual([[2], [1]]);
       expect(element.style.animation).toBe(originalStyle);
       expect(first.cancel).not.toHaveBeenCalled();
       expect(first.detach).not.toHaveBeenCalled();
-      expect(element.animationReads).toBe(2);
-      renderer.clear();
+      expect(element.animationReads).toBe(0);
+      renderer.updateComments([comment], 100, activeState);
+      expect(updatePlaybackRate).not.toHaveBeenCalled();
       expect(first.cancel).toHaveBeenCalledOnce();
       expect(first.detach).toHaveBeenCalledExactlyOnceWith(null);
-      expect(element.animationReads).toBe(
-        2,
-        "clear does not query more wrappers",
+      expect(element.style.animation).toBe("none");
+      expect(element.style.transform).toContain("translateX");
+      renderer.setPlaybackSpeed(1);
+      renderer.updateComments([comment], 101, activeState);
+      expect(renderer.needsContinuousDraw()).toBe(true);
+      expect(element.style.animation).toBe("none");
+      renderer.updateComments([], 102, activeState);
+      expect(renderer.getVisibleCommentIndices()).toEqual(
+        [0],
+        "off-timeline frame nodes remain until their geometric exit",
       );
+      expect(element.animationReads).toBe(1);
+      renderer.updateComments([], 100_000, activeState);
+      expect(renderer.getVisibleCommentIndices()).toEqual([]);
+      expect(renderer.needsContinuousDraw()).toBe(false);
+      expect(element.style.transform).toBe("");
+      renderer.updateComments([comment], 100, activeState);
+      expect(element.parentElement).not.toBeNull();
+      expect(element.style.animation).not.toBe("none");
+      expect(element.style.transform).toBe("");
+      expect(renderer.needsContinuousDraw()).toBe(false);
+      renderer.clear();
+      expect(element.animationReads).toBe(
+        1,
+        "neither frame draws nor pooling create more wrappers",
+      );
+    } finally {
+      renderer.destroy();
+    }
+  });
+
+  test("unchanged 1x retains the CSS path without animation reads or transform writes", () => {
+    const { renderer, comment, element } = scrollingFixture();
+    const original = element.style.animation;
+    try {
+      renderer.setPlaybackSpeed(1);
+      renderer.updateComments([comment], 101, activeState);
+      renderer.updateComments([comment], 102, activeState);
+      expect(renderer.needsContinuousDraw()).toBe(false);
+      expect(element.style.animation).toBe(original);
+      expect(element.style.transform).toBe("");
+      expect(element.animationReads).toBe(0);
     } finally {
       renderer.destroy();
     }

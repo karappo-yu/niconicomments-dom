@@ -15,6 +15,7 @@ import {
 import { getScrollSpeed } from "@/utils/comment";
 
 const POOL_MAX_SIZE = 512;
+type CommentElement = HTMLDivElement & { __dmComment?: IComment };
 
 const CSS = `
 @keyframes dm-scroll {
@@ -58,7 +59,7 @@ class CSSRenderer {
   private readonly options: BaseOptions;
   private container: HTMLDivElement;
   private pool: HTMLDivElement[] = [];
-  private activeElements: Map<number, HTMLDivElement> = new Map();
+  private activeElements: Map<number, CommentElement> = new Map();
   private activeSeenGeneration: Map<number, number> = new Map();
   private activeElementReverse: Map<number, boolean> = new Map();
   private readonly exposedAnimations = new Map<
@@ -71,7 +72,12 @@ class CSSRenderer {
   private paused = false;
   private lastUpdateVpos = -1;
   private playbackSpeed = 1;
-  private readonly animationBaseSpeeds = new WeakMap<HTMLDivElement, number>();
+  private frameHandoffPending = false;
+  private readonly scrollEndPositions = new WeakMap<HTMLDivElement, number>();
+  private readonly frameDrivenElements = new Map<
+    HTMLDivElement,
+    { endX: number; lastX: number }
+  >();
   private measureCanvas: HTMLCanvasElement | null = null;
   private fontMetricsCache = new Map<
     string,
@@ -170,7 +176,35 @@ class CSSRenderer {
       return 0;
     }
 
+    if (this.frameHandoffPending) {
+      this.frameHandoffPending = false;
+      const handoffs: CommentElement[] = [];
+      for (const [, element] of this.activeElements) {
+        const comment = element.__dmComment;
+        if (comment?.loc !== "naka" || this.frameDrivenElements.has(element))
+          continue;
+        this.getElementAnimations(element);
+        handoffs.push(element);
+      }
+      // Collect wrappers before mutating styles, so later getAnimations()
+      // calls do not resolve the preceding node's pending style changes.
+      for (const element of handoffs) {
+        const comment = element.__dmComment;
+        if (!comment) continue;
+        // Retire at the draw boundary. The node stays frame-driven until exit.
+        this.retireElementAnimations(element);
+        element.style.animation = "none";
+        this.frameDrivenElements.set(element, {
+          endX:
+            this.scrollEndPositions.get(element) ??
+            Math.min(0, this.viewportOffsetX) - comment.comment.width,
+          lastX: Number.NaN,
+        });
+      }
+    }
+
     const generation = ++this.visibilityGeneration;
+    const hasFrameElements = this.frameDrivenElements.size > 0;
     const motionDirty = this.motionDirty;
     this.motionDirty = false;
     const isSeek =
@@ -231,6 +265,15 @@ class CSSRenderer {
         }
         const newEl = this.activeElements.get(comment.index);
         if (newEl) newElements.push(newEl);
+      } else if (hasFrameElements && this.frameDrivenElements.has(element)) {
+        if (!this.updateFrameScroll(element, comment, vpos, isReverse)) {
+          this.recycleElement(element);
+          this.activeElements.delete(comment.index);
+          this.activeSeenGeneration.delete(comment.index);
+          this.activeElementReverse.delete(comment.index);
+          continue;
+        }
+        this.activeElementReverse.set(comment.index, isReverse);
       } else if (
         comment.loc === "naka" &&
         (isSeek ||
@@ -262,22 +305,36 @@ class CSSRenderer {
     for (const [index, element] of this.activeElements) {
       if (this.activeSeenGeneration.get(index) !== generation) {
         if (!motionDirty && !excludedByLimit.has(index)) {
-          // CSS animation の再生状態を確認。running/paused ならまだ画面上。
-          // getAnimations() は CSS @keyframes アニメーションも返す。
-          // dm-pop(combo 演出)は装飾のみで、生存判定から除外する。
-          const anims = this.getElementAnimations(element);
-          let stillPlaying = false;
-          for (let i = 0, n = anims.length; i < n; i++) {
-            const anim = anims[i];
-            if (!anim) continue;
-            if ((anim as CSSAnimation).animationName === "dm-pop") continue;
-            const state = anim.playState;
-            if (state === "running" || state === "paused") {
-              stillPlaying = true;
-              break;
+          if (hasFrameElements && this.frameDrivenElements.has(element)) {
+            const comment = element.__dmComment;
+            const reverse = comment?.owner
+              ? frameActiveState.reverseActiveOwner
+              : frameActiveState.reverseActiveViewer;
+            if (
+              comment &&
+              this.updateFrameScroll(element, comment, vpos, reverse)
+            ) {
+              this.activeElementReverse.set(index, reverse);
+              continue;
             }
+          } else {
+            // CSS animation の再生状態を確認。running/paused ならまだ画面上。
+            // getAnimations() は CSS @keyframes アニメーションも返す。
+            // dm-pop(combo 演出)は装飾のみで、生存判定から除外する。
+            const anims = this.getElementAnimations(element);
+            let stillPlaying = false;
+            for (let i = 0, n = anims.length; i < n; i++) {
+              const anim = anims[i];
+              if (!anim) continue;
+              if ((anim as CSSAnimation).animationName === "dm-pop") continue;
+              const state = anim.playState;
+              if (state === "running" || state === "paused") {
+                stillPlaying = true;
+                break;
+              }
+            }
+            if (stillPlaying) continue;
           }
-          if (stillPlaying) continue;
         }
         this.recycleElement(element);
         this.activeElements.delete(index);
@@ -446,24 +503,39 @@ class CSSRenderer {
     const next = Number.isFinite(speed) && speed > 0 ? speed : 1;
     if (next === this.playbackSpeed) return;
     this.playbackSpeed = next;
+    this.frameHandoffPending = true;
+  }
 
-    // Preserve the browser animation's current phase. Rebuilding from the
-    // last drawn video time can pull a still-running animation backwards.
-    // Query only on a discrete speed change, and retire these exposed wrappers
-    // through the same WebKit timeline cleanup used by the lifetime check.
-    for (const [, element] of this.activeElements) {
-      const comment = (element as HTMLDivElement & { __dmComment?: IComment })
-        .__dmComment;
-      if (comment?.loc !== "naka") continue;
-      const baseSpeed = this.animationBaseSpeeds.get(element);
-      if (baseSpeed === undefined) continue;
-      for (const animation of this.getElementAnimations(element)) {
-        const name = (animation as CSSAnimation).animationName;
-        if (name === "dm-scroll" || name === "dm-scroll-alt") {
-          animation.updatePlaybackRate(next / baseSpeed);
-        }
-      }
+  needsContinuousDraw(): boolean {
+    return (
+      this.frameHandoffPending ||
+      this.playbackSpeed !== 1 ||
+      this.frameDrivenElements.size > 0
+    );
+  }
+
+  private updateFrameScroll(
+    element: HTMLDivElement,
+    comment: IComment,
+    vpos: number,
+    isReverse: boolean,
+  ): boolean {
+    const state = this.frameDrivenElements.get(element);
+    if (!state) return false;
+    const currentXPx =
+      this.config.commentDrawPadding +
+      this.config.commentDrawRange -
+      (vpos - comment.vpos + 100) * getScrollSpeed(comment, this.config) +
+      this.viewportOffsetX;
+    if (currentXPx <= state.endX) return false;
+    const x = isReverse
+      ? this.viewportWidth - comment.comment.width - currentXPx
+      : currentXPx;
+    if (x !== state.lastX) {
+      element.style.transform = `translateX(calc(${x} * var(--dm-unit)))`;
+      state.lastX = x;
     }
+    return true;
   }
 
   /** The next frame refreshes each surviving node once after relayout. */
@@ -507,6 +579,13 @@ class CSSRenderer {
       return false;
     }
 
+    this.scrollEndPositions.set(element, toXPx);
+    if (this.playbackSpeed !== 1 || this.frameDrivenElements.has(element)) {
+      element.style.animation = "none";
+      this.frameDrivenElements.set(element, { endX: toXPx, lastX: Number.NaN });
+      return this.updateFrameScroll(element, comment, vpos, isReverse);
+    }
+
     let fromXPx: number;
     let endXPx: number;
     if (isReverse) {
@@ -529,7 +608,6 @@ class CSSRenderer {
         ? "dm-scroll-alt"
         : "dm-scroll";
     element.style.animation = `${name} ${remainingSec}s linear forwards`;
-    this.animationBaseSpeeds.set(element, this.playbackSpeed);
     return true;
   }
 
@@ -809,8 +887,10 @@ class CSSRenderer {
 
   private recycleElement(element: HTMLDivElement) {
     this.retireElementAnimations(element);
-    this.animationBaseSpeeds.delete(element);
+    this.scrollEndPositions.delete(element);
+    this.frameDrivenElements.delete(element);
     element.style.animation = "";
+    element.style.transform = "";
     element.remove();
     element.style.cssText = "";
     element.textContent = "";
@@ -839,7 +919,7 @@ class CSSRenderer {
     this.exposedAnimations.delete(element);
     // WebKit bug 318856 keeps canceled CSSAnimation wrappers alive while
     // their timeline is non-null. Only retire wrappers already exposed by the
-    // lifetime check or a speed change, avoiding new wrappers on every clear.
+    // lifetime check or a CSS-to-frame handoff, avoiding new wrappers on every clear.
     for (const animation of animations) {
       try {
         animation.cancel();
@@ -859,9 +939,11 @@ class CSSRenderer {
       this.recycleElement(element);
     }
     this.activeElements.clear();
+    this.frameDrivenElements.clear();
     this.activeSeenGeneration.clear();
     this.activeElementReverse.clear();
     this.lastUpdateVpos = -1;
+    this.frameHandoffPending = false;
   }
 
   getVisibleCommentIndices(): number[] {
