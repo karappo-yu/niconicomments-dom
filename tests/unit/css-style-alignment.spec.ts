@@ -412,7 +412,6 @@ describe("CSSRenderer style alignment with Canvas", () => {
   });
 
   test.each([
-    "playback speed",
     "seek",
     "reverse",
     "motion",
@@ -422,8 +421,7 @@ describe("CSSRenderer style alignment with Canvas", () => {
     element.animations = [first.animation];
     try {
       renderer.updateComments([], 101, activeState);
-      if (reason === "playback speed") renderer.setPlaybackSpeed(2);
-      else if (reason === "seek") {
+      if (reason === "seek") {
         renderer.updateComments([comment], 262, activeState);
       } else if (reason === "reverse") {
         renderer.updateComments([comment], 102, {
@@ -449,6 +447,33 @@ describe("CSSRenderer style alignment with Canvas", () => {
       expect(first.cancel).toHaveBeenCalledOnce();
       expect(second.cancel).toHaveBeenCalledOnce();
       expect(second.detach).toHaveBeenCalledExactlyOnceWith(null);
+    } finally {
+      renderer.destroy();
+    }
+  });
+
+  test("speed changes keep the same animation and retire newly exposed wrappers on clear", () => {
+    const { renderer, element } = scrollingFixture();
+    const first = animationFixture(element);
+    const updatePlaybackRate = vi.fn();
+    Object.assign(first.animation, { updatePlaybackRate });
+    element.animations = [first.animation];
+    const originalStyle = element.style.animation;
+    try {
+      renderer.setPlaybackSpeed(2);
+      renderer.setPlaybackSpeed(1);
+      expect(updatePlaybackRate.mock.calls).toEqual([[2], [1]]);
+      expect(element.style.animation).toBe(originalStyle);
+      expect(first.cancel).not.toHaveBeenCalled();
+      expect(first.detach).not.toHaveBeenCalled();
+      expect(element.animationReads).toBe(2);
+      renderer.clear();
+      expect(first.cancel).toHaveBeenCalledOnce();
+      expect(first.detach).toHaveBeenCalledExactlyOnceWith(null);
+      expect(element.animationReads).toBe(
+        2,
+        "clear does not query more wrappers",
+      );
     } finally {
       renderer.destroy();
     }

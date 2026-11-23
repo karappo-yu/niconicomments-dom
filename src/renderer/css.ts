@@ -71,6 +71,7 @@ class CSSRenderer {
   private paused = false;
   private lastUpdateVpos = -1;
   private playbackSpeed = 1;
+  private readonly animationBaseSpeeds = new WeakMap<HTMLDivElement, number>();
   private measureCanvas: HTMLCanvasElement | null = null;
   private fontMetricsCache = new Map<
     string,
@@ -446,15 +447,22 @@ class CSSRenderer {
     if (next === this.playbackSpeed) return;
     this.playbackSpeed = next;
 
-    // 再生速度が変わった瞬間だけ、全てのアクティブなスクロール弾幕を
-    // 現在の vpos 基準で再アニメーションする (位置は連続、時間は新速度に合わせて縮尺)。
-    // 固定コメント(ue/shita)はアニメーションを持たず vpos 可視性のみで制御されるため不要。
-    for (const [index, element] of this.activeElements) {
+    // Preserve the browser animation's current phase. Rebuilding from the
+    // last drawn video time can pull a still-running animation backwards.
+    // Query only on a discrete speed change, and retire these exposed wrappers
+    // through the same WebKit timeline cleanup used by the lifetime check.
+    for (const [, element] of this.activeElements) {
       const comment = (element as HTMLDivElement & { __dmComment?: IComment })
         .__dmComment;
       if (comment?.loc !== "naka") continue;
-      const isReverse = this.activeElementReverse.get(index) ?? false;
-      this.reanimateScroll(comment, this.lastUpdateVpos, isReverse);
+      const baseSpeed = this.animationBaseSpeeds.get(element);
+      if (baseSpeed === undefined) continue;
+      for (const animation of this.getElementAnimations(element)) {
+        const name = (animation as CSSAnimation).animationName;
+        if (name === "dm-scroll" || name === "dm-scroll-alt") {
+          animation.updatePlaybackRate(next / baseSpeed);
+        }
+      }
     }
   }
 
@@ -521,6 +529,7 @@ class CSSRenderer {
         ? "dm-scroll-alt"
         : "dm-scroll";
     element.style.animation = `${name} ${remainingSec}s linear forwards`;
+    this.animationBaseSpeeds.set(element, this.playbackSpeed);
     return true;
   }
 
@@ -800,6 +809,7 @@ class CSSRenderer {
 
   private recycleElement(element: HTMLDivElement) {
     this.retireElementAnimations(element);
+    this.animationBaseSpeeds.delete(element);
     element.style.animation = "";
     element.remove();
     element.style.cssText = "";
@@ -828,8 +838,8 @@ class CSSRenderer {
     if (!animations) return;
     this.exposedAnimations.delete(element);
     // WebKit bug 318856 keeps canceled CSSAnimation wrappers alive while
-    // their timeline is non-null. Only inspect animations where the lifetime
-    // check already exposed wrappers, avoiding new wrappers on every clear.
+    // their timeline is non-null. Only retire wrappers already exposed by the
+    // lifetime check or a speed change, avoiding new wrappers on every clear.
     for (const animation of animations) {
       try {
         animation.cancel();
