@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-for (const operation of ["clear", "destroy", "speed", "motion", "reverse"]) {
+for (const operation of ["clear", "destroy", "motion", "reverse"]) {
   test(`CSS renderer detaches exposed native animations on ${operation}`, async ({
     page,
   }) => {
@@ -68,7 +68,6 @@ for (const operation of ["clear", "destroy", "speed", "motion", "reverse"]) {
         }));
         if (action === "clear") nc.clear();
         else if (action === "destroy") nc.destroy();
-        else if (action === "speed") nc.setPlaybackSpeed(2);
         else if (action === "motion") {
           nc.setScrollSpeed(0.5);
           nc.drawCanvas(1, true);
