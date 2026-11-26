@@ -255,7 +255,7 @@ test("frame nodes follow Canvas coordinates, reverse, limits and pooled-node cle
         viewport: { width: number; offsetX: number };
       };
       cssRenderer: {
-        frameDrivenElements: Map<HTMLDivElement, unknown>;
+        frameDrivenElements: Map<HTMLDivElement, { lastX: number }>;
         updateComments(
           comments: import("@/@types").IComment[],
           vpos: number,
@@ -269,8 +269,16 @@ test("frame nodes follow Canvas coordinates, reverse, limits and pooled-node cle
       comment = internal.comments[0];
     if (!element || !comment) throw new Error("Missing motion fixture");
     const cfg = internal.ctx.config;
-    const x = () =>
-      (new DOMMatrix(getComputedStyle(element).transform).m41 * 1080) / 720;
+    const frame = internal.cssRenderer.frameDrivenElements.get(element);
+    if (!frame) throw new Error("Missing frame motion state");
+    const positionError = (expectedX: number) => ({
+      logical: Math.abs(frame.lastX - expectedX),
+      // getComputedStyle serializes the browser's rounded transform in CSS pixels.
+      css: Math.abs(
+        new DOMMatrix(getComputedStyle(element).transform).m41 -
+          (expectedX * 720) / 1080,
+      ),
+    });
     const state = {
       banActive: false,
       reverseActiveOwner: false,
@@ -284,13 +292,13 @@ test("frame nodes follow Canvas coordinates, reverse, limits and pooled-node cle
         (comment.long + 100)) *
         cfg.scrollSpeed +
       internal.ctx.viewport.offsetX;
-    const xError = Math.abs(x() - expected);
+    const xError = positionError(expected);
     internal.cssRenderer.updateComments([comment], 100, {
       ...state,
       reverseActiveViewer: true,
     });
-    const reverseError = Math.abs(
-      x() - (internal.ctx.viewport.width - comment.width - expected),
+    const reverseError = positionError(
+      internal.ctx.viewport.width - comment.width - expected,
     );
     nc.drawCanvas(1000, true);
     nc.setScrollSpeed(0.5);
@@ -321,8 +329,10 @@ test("frame nodes follow Canvas coordinates, reverse, limits and pooled-node cle
       long: comment.long,
     };
   });
-  expect(result.xError).toBeLessThan(0.001);
-  expect(result.reverseError).toBeLessThan(0.001);
+  for (const error of [result.xError, result.reverseError]) {
+    expect(error.logical).toBeLessThan(1e-8);
+    expect(error.css).toBeLessThan(0.01);
+  }
   expect(result.relayoutE, JSON.stringify(result)).toBe(true);
   expect(result.limited).toBe(true);
   expect(result.poolClean).toBe(true);
