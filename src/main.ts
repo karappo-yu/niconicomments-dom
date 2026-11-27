@@ -761,12 +761,11 @@ class NiconiComments {
    */
   private _updateFixedCombo(vpos: number): boolean {
     if (this.fixedComboChains.length === 0) return false;
-    let changed = false;
+    let touchedTimeline: Set<number> | undefined;
     for (const chain of this.fixedComboChains) {
       const count = fixedComboCountAt(chain, vpos);
       if (count === chain.currentCount) continue;
       chain.currentCount = count;
-      changed = true;
       const host = chain.host;
       // 还原原始字号数据后写入新文本(content setter 会重新测量);
       // 高度保持原值防止 shita 弹幕垂直抖动,宽度随文本自然重新居中
@@ -791,22 +790,16 @@ class NiconiComments {
           }`,
         );
       }
-      // z 序变化后重排宿主所在链的 timeline 槽位(canvas 绘制顺序 = 数组顺序)
-      this._resortFixedComboChainTimeline(chain);
+      // Several hosts can change z-order in the same frame. Wait until all
+      // indices are final before sorting their shared timeline slots.
+      touchedTimeline ??= new Set<number>();
+      for (let v = host.vpos; v < chain.end; v++) {
+        if (this.timeline[v]) touchedTimeline.add(v);
+      }
     }
-    return changed;
-  }
-
-  /**
-   * combo 计数变化后重排链覆盖的 timeline 槽位。
-   * 排序比较器使用 fixedComboZIndex,宿主的新 z 序由此生效。
-   * @param chain 合并链
-   */
-  private _resortFixedComboChainTimeline(chain: FixedComboChain): void {
-    for (let v = chain.host.vpos; v < chain.end; v++) {
-      const item = this.timeline[v];
-      if (item) item.sort(TIMELINE_COMMENT_SORT);
-    }
+    if (!touchedTimeline) return false;
+    this.sortTimelineComment(touchedTimeline);
+    return true;
   }
 
   /**

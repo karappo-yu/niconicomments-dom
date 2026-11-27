@@ -155,6 +155,41 @@ describe("fixedCombo suffix random color", () => {
     expect(host()?.comment.color).toBe("#FFFFFF");
   });
 
+  test("overlapping chains sort shared slots once and restore order on backward seek", () => {
+    const instance = new NiconiComments(
+      new FakeRenderer(),
+      [
+        createComment({ id: 1, vpos: 100, content: "A" }),
+        createComment({ id: 2, vpos: 100, content: "B" }),
+        createComment({ id: 3, vpos: 150, content: "between" }),
+        createComment({ id: 4, vpos: 200, content: "B" }),
+        createComment({ id: 5, vpos: 200, content: "A" }),
+        createComment({ id: 6, vpos: 100, content: "owner", owner: true }),
+      ],
+      { format: "formatted", mode: "html5", config: { fixedCombo: true } },
+    );
+    const { timeline } = instance as unknown as {
+      timeline: Record<number, IComment[]>;
+    };
+    // The hosts overlap here even when a seek lands on another slot.
+    const slot = timeline[250]!;
+    const sort = vi.spyOn(slot, "sort");
+    const order = () => slot.map((comment) => comment.content);
+    instance.drawCanvas(175, true);
+    expect(order()).toEqual(["A", "B", "between", "owner"]);
+    sort.mockClear();
+    instance.drawCanvas(200, true);
+    expect(sort).toHaveBeenCalledTimes(1);
+    expect(order()).toEqual(["between", "Bx2", "Ax2", "owner"]);
+    instance.drawCanvas(201, true);
+    expect(sort).toHaveBeenCalledTimes(1);
+    instance.drawCanvas(175, true);
+    expect(sort).toHaveBeenCalledTimes(2);
+    expect(order()).toEqual(["A", "B", "between", "owner"]);
+    sort.mockRestore();
+    instance.destroy();
+  });
+
   test("count falling back to 1 clears the suffix fields", () => {
     const renderer = new FakeRenderer();
     const instance = new NiconiComments(
